@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import qs.Common
 import qs.Widgets
 import qs.Services
@@ -37,10 +38,10 @@ PluginComponent {
             showCloseButton: true
 
             Column {
-                width: parent.width
+                width: parent.width - Theme.spacingM * 2
+                anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingM
-                leftPadding: Theme.spacingM
-                rightPadding: Theme.spacingM
+                topPadding: Theme.spacingM
                 bottomPadding: Theme.spacingM
 
                 // 1. Album Cover Art (Large, Centered)
@@ -49,7 +50,6 @@ PluginComponent {
                     height: 180
                     radius: Theme.cornerRadius
                     color: Theme.surfaceVariant
-                    clip: true
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     Image {
@@ -57,12 +57,35 @@ PluginComponent {
                         anchors.fill: parent
                         source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
+                        visible: false
+                    }
+
+                    MultiEffect {
+                        anchors.fill: parent
+                        source: popoutArt
+                        maskEnabled: true
+                        maskSource: artMask
                         visible: !!(service && service.trackArtUrl)
+                    }
+
+                    Item {
+                        id: artMask
+                        anchors.fill: parent
+                        layer.enabled: true
+                        layer.smooth: true
+                        visible: false
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: Theme.cornerRadius
+                            color: "black"
+                            antialiasing: true
+                        }
                     }
 
                     // Placeholder if no cover art
                     DankIcon {
-                        visible: !popoutArt.visible
+                        visible: !(service && service.trackArtUrl)
                         name: "music_note"
                         size: 64
                         color: Theme.surfaceVariantText
@@ -217,36 +240,38 @@ PluginComponent {
                     border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.2)
                     border.width: 1
 
-                    Row {
-                        anchors.fill: parent
+                    DankIcon {
+                        id: sourceLeftIcon
+                        name: "assistant_device"
+                        size: 18
+                        color: Theme.primary
+                        anchors.left: parent.left
                         anchors.leftMargin: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    StyledText {
+                        text: service && service.manualPlayerIdentity !== ""
+                                ? "Source: " + service.manualPlayerIdentity
+                                : "Source: Auto (Smart)"
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceText
+                        elide: Text.ElideRight
+                        anchors.left: sourceLeftIcon.right
+                        anchors.leftMargin: Theme.spacingS
+                        anchors.right: sourceRightIcon.left
+                        anchors.rightMargin: Theme.spacingS
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    DankIcon {
+                        id: sourceRightIcon
+                        name: root.showPlayerList ? "keyboard_arrow_up" : "keyboard_arrow_down"
+                        size: 18
+                        color: Theme.surfaceVariantText
+                        anchors.right: parent.right
                         anchors.rightMargin: Theme.spacingM
-                        spacing: Theme.spacingS
-
-                        DankIcon {
-                            name: "assistant_device"
-                            size: 18
-                            color: Theme.primary
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        StyledText {
-                            text: service && service.manualPlayerIdentity !== ""
-                                    ? "Source: " + service.manualPlayerIdentity
-                                    : "Source: Auto (Smart)"
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceText
-                            elide: Text.ElideRight
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 48
-                        }
-
-                        DankIcon {
-                            name: root.showPlayerList ? "keyboard_arrow_up" : "keyboard_arrow_down"
-                            size: 18
-                            color: Theme.surfaceVariantText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        anchors.verticalCenter: parent.verticalCenter
                     }
 
                     MouseArea {
@@ -312,29 +337,27 @@ PluginComponent {
                             border.color: isSelectedManually ? (Theme.primary || "transparent") : (isActive && Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4) : "transparent")
                             border.width: 1
 
-                            Row {
-                                anchors.fill: parent
+                            DankIcon {
+                                id: playerIcon
+                                name: "music_note"
+                                size: 14
+                                color: isActive ? Theme.primary : Theme.surfaceText
+                                anchors.left: parent.left
                                 anchors.leftMargin: Theme.spacingM
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            StyledText {
+                                text: modelData.identity || "Player"
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: isActive ? Theme.primary : Theme.surfaceText
+                                font.weight: isActive ? Font.Bold : Font.Normal
+                                elide: Text.ElideRight
+                                anchors.left: playerIcon.right
+                                anchors.leftMargin: Theme.spacingS
+                                anchors.right: parent.right
                                 anchors.rightMargin: Theme.spacingM
-                                spacing: Theme.spacingS
-                                clip: true
-
-                                DankIcon {
-                                    name: "music_note"
-                                    size: 14
-                                    color: isActive ? Theme.primary : Theme.surfaceText
-                                    anchors.verticalCenter: parent.verticalCenter
-                                }
-
-                                StyledText {
-                                    text: modelData.identity || "Player"
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: isActive ? Theme.primary : Theme.surfaceText
-                                    font.weight: isActive ? Font.Bold : Font.Normal
-                                    elide: Text.ElideRight
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width - 24
-                                }
+                                anchors.verticalCenter: parent.verticalCenter
                             }
 
                             MouseArea {
