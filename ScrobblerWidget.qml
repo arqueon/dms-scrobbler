@@ -19,6 +19,184 @@ PluginComponent {
         if (service) service.toggleLoveCurrentTrack();
     }
 
+    popoutContent: Component {
+        PopoutComponent {
+            id: popout
+            headerText: "Last.fm Scrobbler"
+            showCloseButton: true
+
+            Column {
+                width: 220
+                spacing: Theme.spacingM
+                leftPadding: Theme.spacingM
+                rightPadding: Theme.spacingM
+                bottomPadding: Theme.spacingM
+
+                // 1. Album Cover Art (Large)
+                Rectangle {
+                    width: 180
+                    height: 180
+                    radius: Theme.cornerRadius
+                    color: Theme.surfaceVariant
+                    clip: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    Image {
+                        id: popoutArt
+                        anchors.fill: parent
+                        source: service && service.activePlayer && service.activePlayer.trackArtUrl !== ""
+                                ? service.activePlayer.trackArtUrl
+                                : ""
+                        fillMode: Image.PreserveAspectCrop
+                        visible: !!(service && service.activePlayer && service.activePlayer.trackArtUrl)
+                    }
+
+                    // Placeholder if no cover art
+                    DankIcon {
+                        visible: !popoutArt.visible
+                        name: "music_note"
+                        size: 64
+                        color: Theme.surfaceVariantText
+                        anchors.centerIn: parent
+                    }
+                }
+
+                // 2. Track Metadata (Title, Artist, Album)
+                Column {
+                    width: parent.width
+                    spacing: Theme.spacingXS
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service ? root.service.trackTitle : "No song playing"
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Bold
+                        color: Theme.surfaceText
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service ? root.service.trackArtist : ""
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.primary
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
+                        font.pixelSize: Theme.fontSizeSmall - 1
+                        color: Theme.surfaceVariantText
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        visible: text !== ""
+                    }
+                }
+
+                // 3. Love & Playback Controls Row
+                Row {
+                    spacing: Theme.spacingM
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    // Previous Track
+                    StyledRect {
+                        width: 36
+                        height: 36
+                        radius: 18
+                        color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        visible: !!(service && service.activePlayer)
+
+                        DankIcon {
+                            name: "skip_previous"
+                            size: 20
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: prevMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                        }
+                    }
+
+                    // Play / Pause / Love (middle)
+                    StyledRect {
+                        width: 44
+                        height: 44
+                        radius: 22
+                        color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+
+                        DankIcon {
+                            name: root.isLoved ? "favorite" : "favorite_border"
+                            size: 24
+                            color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: loveMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleLove()
+                        }
+                    }
+
+                    // Next Track
+                    StyledRect {
+                        width: 36
+                        height: 36
+                        radius: 18
+                        color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        visible: !!(service && service.activePlayer)
+
+                        DankIcon {
+                            name: "skip_next"
+                            size: 20
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: nextMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                        }
+                    }
+                }
+
+                // 4. Source & Username footer
+                StyledText {
+                    width: parent.width
+                    text: {
+                        var str = "";
+                        if (service && service.username) {
+                            str += "Scrobbling as: <b>" + service.username + "</b><br/>";
+                        }
+                        if (service && service.activePlayer) {
+                            str += "Source: " + service.playerIdentity;
+                        }
+                        return str;
+                    }
+                    font.pixelSize: Theme.fontSizeSmall - 2
+                    color: Theme.surfaceVariantText
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.StyledText
+                }
+            }
+        }
+    }
+
     horizontalBarPill: Component {
         Item {
             visible: root.hasActiveMedia
@@ -40,7 +218,11 @@ PluginComponent {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        root.toggleLove();
+                        if (typeof root.triggerPopout === "function") {
+                            root.triggerPopout();
+                        } else {
+                            root.toggleLove();
+                        }
                     } else if (mouse.button === Qt.RightButton) {
                         if (root.service) root.service.checkTrackInfo();
                     }
@@ -275,7 +457,11 @@ PluginComponent {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        root.toggleLove();
+                        if (typeof root.triggerPopout === "function") {
+                            root.triggerPopout();
+                        } else {
+                            root.toggleLove();
+                        }
                     } else if (mouse.button === Qt.RightButton) {
                         if (root.service) root.service.checkTrackInfo();
                     }

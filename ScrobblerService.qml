@@ -23,14 +23,133 @@ PluginComponent {
     readonly property bool showAlbumArt: pluginData.showAlbumArt !== false
     readonly property bool showTrackInfo: pluginData.showTrackInfo !== false
 
-    // State properties
-    readonly property MprisPlayer activePlayer: MprisController.activePlayer
+    function isPlayerWhitelisted(player) {
+        if (!player) return false;
+        var identity = "";
+        var title = "";
+        
+        if (typeof player === "string") {
+            identity = player.toLowerCase();
+        } else {
+            identity = (player.identity || "").toLowerCase();
+            title = (player.trackTitle || "").toLowerCase();
+        }
+        
+        var list = root.playerWhitelist.split(",").map(function(item) {
+            return item.trim().toLowerCase();
+        });
+        
+        for (var i = 0; i < list.length; i++) {
+            var item = list[i];
+            if (!item) continue;
+            
+            // 1. Substring match on identity (e.g., "chrome" matches "Google Chrome")
+            if (identity.indexOf(item) !== -1 || item.indexOf(identity) !== -1) {
+                return true;
+            }
+            
+            // 2. Substring match on track title for web streams (e.g., "youtube music" whitelist item matches "Song | YouTube Music")
+            if (item === "youtube music" || item === "youtube" || item === "ytmusic") {
+                if (title.indexOf("youtube music") !== -1 || title.indexOf("youtube") !== -1) {
+                    return true;
+                }
+            }
+            if (item === "spotify") {
+                if (title.indexOf("spotify") !== -1) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Smart player selection: find the best player among all available players
+    readonly property MprisPlayer activePlayer: {
+        var players = MprisController.availablePlayers;
+        var defaultActive = MprisController.activePlayer;
+        
+        var best = null;
+        for (var i = 0; i < players.length; i++) {
+            var p = players[i];
+            if (!p) continue;
+            if (!isPlayerWhitelisted(p)) continue;
+            
+            var hasArtist = p.trackArtist && p.trackArtist.trim() !== "";
+            var isPlaying = p.playbackState === MprisPlaybackState.Playing;
+            
+            // If currently playing and has rich metadata, it's the perfect target!
+            if (isPlaying && hasArtist) {
+                return p;
+            }
+            
+            if (!best) {
+                best = p;
+            } else {
+                var bestIsPlaying = best.playbackState === MprisPlaybackState.Playing;
+                var pIsPlaying = p.playbackState === MprisPlaybackState.Playing;
+                if (!bestIsPlaying && pIsPlaying) {
+                    best = p;
+                } else if (bestIsPlaying === pIsPlaying) {
+                    var bestHasArtist = best.trackArtist && best.trackArtist.trim() !== "";
+                    var pHasArtist = p.trackArtist && p.trackArtist.trim() !== "";
+                    if (!bestHasArtist && pHasArtist) {
+                        best = p;
+                    }
+                }
+            }
+        }
+        return best || defaultActive;
+    }
+
     readonly property string playerIdentity: activePlayer ? (activePlayer.identity || "") : ""
-    readonly property string trackTitle: activePlayer ? (activePlayer.trackTitle || "") : ""
-    readonly property string trackArtist: activePlayer ? (activePlayer.trackArtist || "") : ""
-    readonly property string trackAlbum: activePlayer ? (activePlayer.trackAlbum || "") : ""
     readonly property int trackLength: activePlayer ? (activePlayer.length || 0) : 0
     readonly property var playbackState: activePlayer ? activePlayer.playbackState : null
+
+    // Cleaned/parsed track details for robust scrobbling
+    readonly property string trackArtist: {
+        if (!activePlayer) return "";
+        var artist = activePlayer.trackArtist || "";
+        if (artist.trim() !== "") return artist.trim();
+        
+        var title = activePlayer.trackTitle || "";
+        if (title.indexOf(" - YouTube Music") !== -1) {
+            title = title.replace(" - YouTube Music", "");
+            var parts = title.split(" - ");
+            if (parts.length >= 2) return parts[1].trim();
+        }
+        var parts = title.split(" - ");
+        if (parts.length === 2) return parts[1].trim();
+        return "";
+    }
+
+    readonly property string trackTitle: {
+        if (!activePlayer) return "";
+        var title = activePlayer.trackTitle || "";
+        var artist = activePlayer.trackArtist || "";
+        if (artist.trim() !== "") return cleanTitleSuffix(title);
+        
+        if (title.indexOf(" - YouTube Music") !== -1) {
+            title = title.replace(" - YouTube Music", "");
+            var parts = title.split(" - ");
+            if (parts.length >= 2) return parts[0].trim();
+        }
+        var parts = title.split(" - ");
+        if (parts.length === 2) return parts[0].trim();
+        return cleanTitleSuffix(title);
+    }
+
+    readonly property string trackAlbum: activePlayer ? cleanTitleSuffix(activePlayer.trackAlbum || "") : ""
+
+    function cleanTitleSuffix(title) {
+        if (!title) return "";
+        title = title.replace(" | YouTube Music", "");
+        title = title.replace(" - YouTube Music", "");
+        title = title.replace(" - YouTube", "");
+        title = title.replace(" | YouTube", "");
+        title = title.replace(" | Spotify", "");
+        title = title.replace(" - Spotify", "");
+        return title.trim();
+    }
 
     property bool scrobbledThisTrack: false
     property bool isLoved: false
@@ -48,13 +167,7 @@ PluginComponent {
         root.scrobblerPath = url.indexOf("file://") === 0 ? url.substring(7) : url;
     }
 
-    function isPlayerWhitelisted(identity) {
-        if (!identity) return false;
-        var list = root.playerWhitelist.split(",").map(function(item) {
-            return item.trim().toLowerCase();
-        });
-        return list.indexOf(identity.toLowerCase()) !== -1;
-    }
+
 
     function handleTrackChange() {
         playTimer.stop();
@@ -67,7 +180,7 @@ PluginComponent {
             return;
         }
 
-        if (!isPlayerWhitelisted(playerIdentity)) {
+        if (!isPlayerWhitelisted(activePlayer)) {
             return;
         }
 
@@ -85,7 +198,7 @@ PluginComponent {
         id: playTimer
         interval: 1000
         repeat: true
-        running: activePlayer && playbackState === MprisPlaybackState.Playing && isPlayerWhitelisted(playerIdentity)
+        running: activePlayer && playbackState === MprisPlaybackState.Playing && isPlayerWhitelisted(activePlayer)
         onTriggered: {
             playtimeCounter += 1;
             checkScrobbleThreshold();
@@ -345,7 +458,7 @@ PluginComponent {
                    " [" + playerIdentity + "]" +
                    " (Loved: " + root.isLoved + 
                    ", Scrobbled: " + root.scrobbledThisTrack + 
-                   ", Whitelisted: " + isPlayerWhitelisted(playerIdentity) + ")";
+                   ", Whitelisted: " + isPlayerWhitelisted(activePlayer) + ")";
         }
     }
 
