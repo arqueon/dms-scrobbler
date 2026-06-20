@@ -60,7 +60,7 @@ PluginComponent {
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl !== ""
+                    visible: !!(service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl)
 
                     Image {
                         anchors.fill: parent
@@ -76,7 +76,7 @@ PluginComponent {
                     width: 18
                     height: 16
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
+                    visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
 
                     Repeater {
                         model: 5
@@ -98,7 +98,7 @@ PluginComponent {
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0)
+                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0))
                                 
                                 PropertyAnimation {
                                     target: scaleTransformH
@@ -129,7 +129,7 @@ PluginComponent {
                 // 3. Track Info (Artist - Title)
                 StyledText {
                     id: trackText
-                    visible: service && service.showTrackInfo && root.trackDisplay !== ""
+                    visible: !!(service && service.showTrackInfo && root.trackDisplay !== "")
                     text: root.trackDisplay
                     color: Theme.surfaceText
                     font.pixelSize: Theme.fontSizeSmall
@@ -257,8 +257,8 @@ PluginComponent {
     verticalBarPill: Component {
         Item {
             visible: root.hasActiveMedia
-            width: root.hasActiveMedia ? (parent.width || 24) : 0
-            implicitHeight: root.hasActiveMedia ? pillCol.height : 0
+            implicitWidth: root.hasActiveMedia ? root.barThickness : 0
+            implicitHeight: root.hasActiveMedia ? pillCol.implicitHeight : 0
 
             ToolTip.visible: root.hasActiveMedia && (pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse)
             ToolTip.delay: 600
@@ -295,7 +295,7 @@ PluginComponent {
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl !== ""
+                    visible: !!(service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl)
 
                     Image {
                         anchors.fill: parent
@@ -310,7 +310,7 @@ PluginComponent {
                     width: 18
                     height: 16
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
+                    visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
 
                     Repeater {
                         model: 5
@@ -331,7 +331,7 @@ PluginComponent {
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0)
+                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0))
                                 
                                 PropertyAnimation {
                                     target: scaleTransformV
@@ -461,22 +461,6 @@ PluginComponent {
                     }
                 }
 
-                // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love
-                MouseArea {
-                    id: pillMouseV
-                    anchors.fill: parent
-                    visible: service ? !service.showPlaybackControls : true
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onClicked: function(mouse) {
-                        if (mouse.button === Qt.LeftButton) {
-                            root.toggleLove();
-                        } else if (mouse.button === Qt.RightButton) {
-                            if (root.service) root.service.checkTrackInfo();
-                        }
-                    }
-                }
             }
         }
     }

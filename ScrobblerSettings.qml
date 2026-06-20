@@ -124,14 +124,16 @@ PluginSettings {
     // Displays session status
     StyledRect {
         width: parent.width
-        height: sessionCol.implicitHeight + Theme.spacingM * 2
+        height: sessionCol.height + Theme.spacingM * 2
         radius: Theme.cornerRadius
         color: Theme.surfaceContainerHigh
 
         Column {
             id: sessionCol
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
             anchors.margins: Theme.spacingM
+            anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingXS
 
             StyledText {
@@ -216,14 +218,16 @@ PluginSettings {
 
     StyledRect {
         width: parent.width
-        height: ipcCol.implicitHeight + Theme.spacingL * 2
+        height: ipcCol.height + Theme.spacingL * 2
         radius: Theme.cornerRadius
         color: Theme.surfaceContainerHigh
 
         Column {
             id: ipcCol
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
             anchors.margins: Theme.spacingL
+            anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
             StyledText {
