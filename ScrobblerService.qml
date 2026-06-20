@@ -63,9 +63,19 @@ PluginComponent {
         return false;
     }
 
+    property string manualPlayerIdentity: ""
+
     // Smart player selection: find the best player among all available players
     readonly property MprisPlayer activePlayer: {
         var players = MprisController.availablePlayers;
+        if (manualPlayerIdentity !== "") {
+            for (var i = 0; i < players.length; i++) {
+                var p = players[i];
+                if (p && p.identity === manualPlayerIdentity) {
+                    return p;
+                }
+            }
+        }
         var defaultActive = MprisController.activePlayer;
         
         var best = null;
@@ -176,15 +186,19 @@ PluginComponent {
     onTrackTitleChanged: handleTrackChange()
     onTrackArtistChanged: handleTrackChange()
     onActivePlayerChanged: handleTrackChange()
+    onApiKeyChanged: handleTrackChange()
+    onUsernameChanged: handleTrackChange()
 
     Component.onCompleted: {
         var url = Qt.resolvedUrl("scrobbler.py").toString();
         root.scrobblerPath = url.indexOf("file://") === 0 ? url.substring(7) : url;
+        handleTrackChange();
     }
 
 
 
     function handleTrackChange() {
+        console.log("ScrobblerService: handleTrackChange called. activePlayer:", activePlayer ? activePlayer.identity : "null", "title:", trackTitle, "artist:", trackArtist, "apiKey:", apiKey, "username:", username);
         playTimer.stop();
         playtimeCounter = 0;
         scrobbledThisTrack = false;
@@ -194,10 +208,12 @@ PluginComponent {
         trackStartTime = Math.floor(Date.now() / 1000);
 
         if (!activePlayer || !trackTitle || !trackArtist) {
+            console.log("ScrobblerService: handleTrackChange early return: activePlayer, trackTitle, or trackArtist is falsy");
             return;
         }
 
         if (!isPlayerWhitelisted(activePlayer)) {
+            console.log("ScrobblerService: handleTrackChange early return: player is not whitelisted");
             return;
         }
 
@@ -304,6 +320,7 @@ PluginComponent {
 
     function checkTrackInfo() {
         if (!apiKey || !username) return;
+        console.log("ScrobblerService: running get-info for:", trackArtist, "-", trackTitle);
         runScrobbler([
             "get-info",
             apiKey,
@@ -311,19 +328,22 @@ PluginComponent {
             trackTitle,
             username
         ], function(code, output) {
+            console.log("ScrobblerService: get-info exited with code:", code, "output:", output);
             try {
                 var json = JSON.parse(output);
                 if (json.loved !== undefined) {
                     isLoved = json.loved;
+                    console.log("ScrobblerService: loved state is:", isLoved);
                 }
                 if (json.album_art !== undefined) {
                     lastfmArtUrl = json.album_art;
+                    console.log("ScrobblerService: cover art URL set to:", lastfmArtUrl);
                 }
                 if (json.album !== undefined) {
                     lastfmAlbum = json.album;
                 }
             } catch(e) {
-                // Ignore parsing errors for get-info
+                console.error("ScrobblerService: failed to parse get-info output:", e, "output was:", output);
             }
         });
     }
@@ -483,6 +503,10 @@ PluginComponent {
                    ", Scrobbled: " + root.scrobbledThisTrack + 
                    ", Whitelisted: " + isPlayerWhitelisted(activePlayer) + ")";
         }
+
+        function getArtUrls(): string {
+            return "trackArtUrl: '" + root.trackArtUrl + "' | lastfmArtUrl: '" + root.lastfmArtUrl + "' | path: '" + root.scrobblerPath + "'";
+        }
     }
 
     Component {
@@ -492,8 +516,15 @@ PluginComponent {
             property var callback: null
             property string outputBuffer: ""
             command: procCommand
-            stdout: SplitParser { splitMarker: ""; onRead: data => outputBuffer += data }
+            stdout: SplitParser { 
+                splitMarker: ""
+                onRead: function(data) {
+                    console.log("ScrobblerService: process read data chunk:", data);
+                    outputBuffer += data;
+                }
+            }
             onExited: function(exitCode) {
+                console.log("ScrobblerService: process exited with code:", exitCode, "buffered output length:", outputBuffer.length);
                 if (callback) callback(exitCode, outputBuffer);
                 destroy();
             }

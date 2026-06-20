@@ -9,7 +9,7 @@ import Quickshell.Services.Mpris
 PluginComponent {
     id: root
 
-    popoutWidth: 240
+    popoutWidth: 440
 
     readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
 
@@ -42,164 +42,275 @@ PluginComponent {
                 rightPadding: Theme.spacingM
                 bottomPadding: Theme.spacingM
 
-                // 1. Album Cover Art (Large)
-                Rectangle {
-                    width: 180
-                    height: 180
-                    radius: Theme.cornerRadius
-                    color: Theme.surfaceVariant
-                    clip: true
-                    anchors.horizontalCenter: parent.horizontalCenter
-
-                    Image {
-                        id: popoutArt
-                        anchors.fill: parent
-                        source: service ? service.trackArtUrl : ""
-                        fillMode: Image.PreserveAspectCrop
-                        visible: !!(service && service.trackArtUrl)
-                    }
-
-                    // Placeholder if no cover art
-                    DankIcon {
-                        visible: !popoutArt.visible
-                        name: "music_note"
-                        size: 64
-                        color: Theme.surfaceVariantText
-                        anchors.centerIn: parent
-                    }
-                }
-
-                // 2. Track Metadata (Title, Artist, Album)
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingXS
-                    anchors.horizontalCenter: parent.horizontalCenter
-
-                    StyledText {
-                        width: parent.width
-                        text: root.service ? root.service.trackTitle : "No song playing"
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.weight: Font.Bold
-                        color: Theme.surfaceText
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: root.service ? root.service.trackArtist : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.weight: Font.Medium
-                        color: Theme.primary
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
-                        font.pixelSize: Theme.fontSizeSmall - 1
-                        color: Theme.surfaceVariantText
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        visible: text !== ""
-                    }
-                }
-
-                // 3. Love & Playback Controls Row
                 Row {
-                    spacing: Theme.spacingM
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - Theme.spacingM * 2
+                    spacing: Theme.spacingL
 
-                    // Previous Track
-                    StyledRect {
-                        width: 36
-                        height: 36
-                        radius: 18
-                        color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.activePlayer)
+                    // Left Column: Album Art + Player Selector
+                    Column {
+                        width: 150
+                        spacing: Theme.spacingS
 
-                        DankIcon {
-                            name: "skip_previous"
-                            size: 20
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
+                        Rectangle {
+                            width: 150
+                            height: 150
+                            radius: Theme.cornerRadius
+                            color: Theme.surfaceVariant
+                            clip: true
+
+                            Image {
+                                id: popoutArt
+                                anchors.fill: parent
+                                source: service ? service.trackArtUrl : ""
+                                fillMode: Image.PreserveAspectCrop
+                                visible: !!(service && service.trackArtUrl)
+                            }
+
+                            DankIcon {
+                                visible: !popoutArt.visible
+                                name: "music_note"
+                                size: 48
+                                color: Theme.surfaceVariantText
+                                anchors.centerIn: parent
+                            }
                         }
 
-                        MouseArea {
-                            id: prevMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                        StyledText {
+                            text: "Media Sources"
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Bold
+                            color: Theme.primary
+                            width: parent.width
+                        }
+
+                        ScrollView {
+                            width: 150
+                            height: 110
+                            clip: true
+
+                            Column {
+                                width: 150
+                                spacing: 4
+
+                                Rectangle {
+                                    width: 150
+                                    height: 28
+                                    radius: Theme.cornerRadius - 2
+                                    color: (service && service.manualPlayerIdentity === "") 
+                                            ? Theme.primary 
+                                            : (autoMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                                    border.color: (service && service.manualPlayerIdentity === "") ? Theme.primary : "transparent"
+                                    border.width: 1
+
+                                    StyledText {
+                                        text: "Auto (Smart)"
+                                        anchors.centerIn: parent
+                                        font.pixelSize: Theme.fontSizeSmall - 1
+                                        color: (service && service.manualPlayerIdentity === "") ? Theme.onPrimary : Theme.surfaceText
+                                        font.weight: (service && service.manualPlayerIdentity === "") ? Font.Bold : Font.Normal
+                                    }
+
+                                    MouseArea {
+                                        id: autoMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: if (service) service.manualPlayerIdentity = ""
+                                    }
+                                }
+
+                                Repeater {
+                                    model: MprisController.availablePlayers
+
+                                    Rectangle {
+                                        required property var modelData
+                                        width: 150
+                                        height: 28
+                                        radius: Theme.cornerRadius - 2
+                                        
+                                        readonly property bool isActive: service && service.activePlayer === modelData
+                                        readonly property bool isSelectedManually: service && service.manualPlayerIdentity === modelData.identity
+                                        
+                                        color: isSelectedManually 
+                                                ? Theme.primary 
+                                                : (isActive ? Theme.surfaceContainerHigh : (playerItemMouse.containsMouse ? Theme.surfaceContainer : Theme.surfaceContainerLow))
+                                        border.color: isActive ? Theme.primary : "transparent"
+                                        border.width: 1
+
+                                        Row {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            spacing: 4
+                                            clip: true
+
+                                            DankIcon {
+                                                name: "music_note"
+                                                size: 12
+                                                color: isSelectedManually ? Theme.onPrimary : (isActive ? Theme.primary : Theme.surfaceText)
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+
+                                            StyledText {
+                                                text: modelData.identity || "Player"
+                                                font.pixelSize: Theme.fontSizeSmall - 1
+                                                color: isSelectedManually ? Theme.onPrimary : Theme.surfaceText
+                                                font.weight: isActive ? Font.Bold : Font.Normal
+                                                elide: Text.ElideRight
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: parent.width - 18
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: playerItemMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                if (service) {
+                                                    service.manualPlayerIdentity = modelData.identity;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    // Play / Pause / Love (middle)
-                    StyledRect {
-                        width: 44
-                        height: 44
-                        radius: 22
-                        color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                    // Right Column: Metadata, Controls, Scrobbler info
+                    Column {
+                        width: parent.width - 150 - parent.spacing
+                        spacing: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
 
-                        DankIcon {
-                            name: root.isLoved ? "favorite" : "favorite_border"
-                            size: 24
-                            color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
-                            anchors.centerIn: parent
+                        Column {
+                            width: parent.width
+                            spacing: Theme.spacingXS
+
+                            StyledText {
+                                width: parent.width
+                                text: root.service ? root.service.trackTitle : "No song playing"
+                                font.pixelSize: Theme.fontSizeMedium
+                                font.weight: Font.Bold
+                                color: Theme.surfaceText
+                                horizontalAlignment: Text.AlignLeft
+                                elide: Text.ElideRight
+                            }
+
+                            StyledText {
+                                width: parent.width
+                                text: root.service ? root.service.trackArtist : ""
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.weight: Font.Medium
+                                color: Theme.primary
+                                horizontalAlignment: Text.AlignLeft
+                                elide: Text.ElideRight
+                            }
+
+                            StyledText {
+                                width: parent.width
+                                text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
+                                font.pixelSize: Theme.fontSizeSmall - 1
+                                color: Theme.surfaceVariantText
+                                horizontalAlignment: Text.AlignLeft
+                                elide: Text.ElideRight
+                                visible: text !== ""
+                            }
                         }
 
-                        MouseArea {
-                            id: loveMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.toggleLove()
+                        Row {
+                            spacing: Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+
+                            StyledRect {
+                                width: 36
+                                height: 36
+                                radius: 18
+                                color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                                visible: !!(service && service.activePlayer)
+
+                                DankIcon {
+                                    name: "skip_previous"
+                                    size: 20
+                                    color: Theme.widgetIconColor
+                                    anchors.centerIn: parent
+                                }
+
+                                MouseArea {
+                                    id: prevMouseP
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                                }
+                            }
+
+                            StyledRect {
+                                width: 44
+                                height: 44
+                                radius: 22
+                                color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+
+                                DankIcon {
+                                    name: root.isLoved ? "favorite" : "favorite_border"
+                                    size: 24
+                                    color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                                    anchors.centerIn: parent
+                                }
+
+                                MouseArea {
+                                    id: loveMouseP
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.toggleLove()
+                                }
+                            }
+
+                            StyledRect {
+                                width: 36
+                                height: 36
+                                radius: 18
+                                color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                                visible: !!(service && service.activePlayer)
+
+                                DankIcon {
+                                    name: "skip_next"
+                                    size: 20
+                                    color: Theme.widgetIconColor
+                                    anchors.centerIn: parent
+                                }
+
+                                MouseArea {
+                                    id: nextMouseP
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                                }
+                            }
+                        }
+
+                        StyledText {
+                            width: parent.width
+                            text: {
+                                var str = "";
+                                if (service && service.username) {
+                                    str += "Scrobbling as: <b>" + service.username + "</b><br/>";
+                                }
+                                if (service && service.activePlayer) {
+                                    str += "Source: " + service.playerIdentity;
+                                }
+                                return str;
+                            }
+                            font.pixelSize: Theme.fontSizeSmall - 2
+                            color: Theme.surfaceVariantText
+                            horizontalAlignment: Text.AlignHCenter
+                            textFormat: Text.StyledText
                         }
                     }
-
-                    // Next Track
-                    StyledRect {
-                        width: 36
-                        height: 36
-                        radius: 18
-                        color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.activePlayer)
-
-                        DankIcon {
-                            name: "skip_next"
-                            size: 20
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-
-                        MouseArea {
-                            id: nextMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
-                        }
-                    }
-                }
-
-                // 4. Source & Username footer
-                StyledText {
-                    width: parent.width
-                    text: {
-                        var str = "";
-                        if (service && service.username) {
-                            str += "Scrobbling as: <b>" + service.username + "</b><br/>";
-                        }
-                        if (service && service.activePlayer) {
-                            str += "Source: " + service.playerIdentity;
-                        }
-                        return str;
-                    }
-                    font.pixelSize: Theme.fontSizeSmall - 2
-                    color: Theme.surfaceVariantText
-                    horizontalAlignment: Text.AlignHCenter
-                    textFormat: Text.StyledText
                 }
             }
         }
@@ -260,60 +371,21 @@ PluginComponent {
                 }
 
                 // 2. Music Playing Wave / Live Audio Visualizer
-                Row {
+                MediaVisualizer {
                     id: animRow
-                    spacing: 2
-                    width: 18
-                    height: 16
                     anchors.verticalCenter: parent.verticalCenter
+                    width: 20
+                    height: 20
+                    barSpan: 20
+                    barCount: 5
+                    stretchToWidth: false
+                    sourceMode: "mediaOnly"
+                    showWhenIdle: false
+                    visualizerStyle: "bars"
+                    barAlignment: "center"
+                    solidColor: Theme.primary
+                    activePlayer: service ? service.activePlayer : null
                     visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
-
-                    Repeater {
-                        model: 5
-                        Rectangle {
-                            width: 2
-                            // Use live Cava frequencies if available, fallback to scale animation
-                            height: (root.isCavaActive && CavaService.values.length > index) 
-                                    ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
-                                    : 16
-                            radius: 1
-                            color: Theme.primary
-                            anchors.bottom: parent.bottom
-                            
-                            transform: Scale {
-                                id: scaleTransformH
-                                origin.y: 16
-                                yScale: 1.0
-                            }
-
-                            SequentialAnimation {
-                                loops: Animation.Infinite
-                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && !root.isCavaActive)
-                                
-                                PropertyAnimation {
-                                    target: scaleTransformH
-                                    property: "yScale"
-                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : (index === 2 ? 0.4 : (index === 3 ? 0.7 : 0.3)))
-                                    duration: index === 0 ? 350 : (index === 1 ? 250 : (index === 2 ? 450 : (index === 3 ? 300 : 400)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                                PropertyAnimation {
-                                    target: scaleTransformH
-                                    property: "yScale"
-                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : (index === 2 ? 0.9 : (index === 3 ? 0.5 : 0.7)))
-                                    duration: index === 0 ? 250 : (index === 1 ? 450 : (index === 2 ? 350 : (index === 3 ? 400 : 300)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                                PropertyAnimation {
-                                    target: scaleTransformH
-                                    property: "yScale"
-                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : (index === 2 ? 0.2 : (index === 3 ? 0.9 : 0.4)))
-                                    duration: index === 0 ? 450 : (index === 1 ? 350 : (index === 2 ? 250 : (index === 3 ? 350 : 450)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                            }
-                        }
-                    }
                 }
 
                 // 3. Track Info (Artist - Title)
@@ -499,58 +571,22 @@ PluginComponent {
                 }
 
                 // 2. Music Playing Wave / Live Audio Visualizer (vertical)
-                Row {
-                    spacing: 2
-                    width: 18
-                    height: 16
+                MediaVisualizer {
+                    id: animCol
                     anchors.horizontalCenter: parent.horizontalCenter
+                    verticalMode: true
+                    width: 20
+                    height: 20
+                    barSpan: 20
+                    barCount: 5
+                    stretchToWidth: false
+                    sourceMode: "mediaOnly"
+                    showWhenIdle: false
+                    visualizerStyle: "bars"
+                    barAlignment: "center"
+                    solidColor: Theme.primary
+                    activePlayer: service ? service.activePlayer : null
                     visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
-
-                    Repeater {
-                        model: 5
-                        Rectangle {
-                            width: 2
-                            height: (root.isCavaActive && CavaService.values.length > index) 
-                                    ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
-                                    : 16
-                            radius: 1
-                            color: Theme.primary
-                            anchors.bottom: parent.bottom
-                            
-                            transform: Scale {
-                                id: scaleTransformV
-                                origin.y: 16
-                                yScale: 1.0
-                            }
-
-                            SequentialAnimation {
-                                loops: Animation.Infinite
-                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && !root.isCavaActive)
-                                
-                                PropertyAnimation {
-                                    target: scaleTransformV
-                                    property: "yScale"
-                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : (index === 2 ? 0.4 : (index === 3 ? 0.7 : 0.3)))
-                                    duration: index === 0 ? 350 : (index === 1 ? 250 : (index === 2 ? 450 : (index === 3 ? 300 : 400)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                                PropertyAnimation {
-                                    target: scaleTransformV
-                                    property: "yScale"
-                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : (index === 2 ? 0.9 : (index === 3 ? 0.5 : 0.7)))
-                                    duration: index === 0 ? 250 : (index === 1 ? 450 : (index === 2 ? 350 : (index === 3 ? 400 : 300)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                                PropertyAnimation {
-                                    target: scaleTransformV
-                                    property: "yScale"
-                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : (index === 2 ? 0.2 : (index === 3 ? 0.9 : 0.4)))
-                                    duration: index === 0 ? 450 : (index === 1 ? 350 : (index === 2 ? 250 : (index === 3 ? 350 : 450)))
-                                    easing.type: Easing.InOutQuad
-                                }
-                            }
-                        }
-                    }
                 }
 
                 // 3. Playback controls (visible conditionally, vertical)
