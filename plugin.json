@@ -1,0 +1,16 @@
+{
+	"id": "lastfmScrobbler",
+	"name": "Last.fm Scrobbler",
+	"description": "Scrobble MPRIS music tracks to Last.fm and love/unlove tracks from the bar and IPC",
+	"version": "1.0.0",
+	"author": "arqueon",
+	"icon": "favorite",
+	"components": {
+		"launcher": "./ScrobblerService.qml",
+		"widget": "./ScrobblerWidget.qml"
+	},
+	"settings": "./ScrobblerSettings.qml",
+	"capabilities": ["dankbar-widget", "control-center", "ipc"],
+	"permissions": ["settings_read", "settings_write", "process"],
+	"requires_dms": ">=1.2.0"
+}

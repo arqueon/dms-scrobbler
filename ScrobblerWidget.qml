@@ -1,0 +1,460 @@
+import QtQuick
+import QtQuick.Controls
+import qs.Common
+import qs.Widgets
+import qs.Modules.Plugins
+import Quickshell.Services.Mpris
+
+PluginComponent {
+    id: root
+
+    readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
+
+    readonly property bool isLoved: service ? service.isLoved : false
+    readonly property bool hasActiveMedia: !!(service && service.activePlayer && service.trackTitle && service.isPlayerWhitelisted(service.playerIdentity))
+    readonly property string trackDisplay: service ? service.trackArtist + " - " + service.trackTitle : ""
+
+    function toggleLove() {
+        if (service) service.toggleLoveCurrentTrack();
+    }
+
+    horizontalBarPill: Component {
+        Item {
+            visible: root.hasActiveMedia
+            implicitWidth: root.hasActiveMedia ? pillRow.implicitWidth : 0
+            implicitHeight: root.hasActiveMedia ? (pillRow.implicitHeight || 24) : 0
+
+            ToolTip.visible: root.hasActiveMedia && (pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse)
+            ToolTip.delay: 600
+            ToolTip.text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+
+            // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love.
+            // Placed outside Row so it doesn't break Row layout positioning.
+            MouseArea {
+                id: pillMouse
+                anchors.fill: parent
+                visible: service ? !service.showPlaybackControls : true
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton) {
+                        root.toggleLove();
+                    } else if (mouse.button === Qt.RightButton) {
+                        if (root.service) root.service.checkTrackInfo();
+                    }
+                }
+            }
+
+            Row {
+                id: pillRow
+                spacing: Theme.spacingS
+                anchors.centerIn: parent
+
+                // 1. Album Art Thumbnail
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 4
+                    color: Theme.surfaceVariant
+                    clip: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl !== ""
+
+                    Image {
+                        anchors.fill: parent
+                        source: service && service.activePlayer ? (service.activePlayer.trackArtUrl || "") : ""
+                        fillMode: Image.PreserveAspectCrop
+                    }
+                }
+
+                // 2. Music Playing Wave Animation
+                Row {
+                    id: animRow
+                    spacing: 2
+                    width: 10
+                    height: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
+
+                    Repeater {
+                        model: 3
+                        Rectangle {
+                            width: 2
+                            height: parent.height
+                            radius: 1
+                            color: Theme.primary
+                            anchors.bottom: parent.bottom
+                            
+                            transform: Scale {
+                                id: scaleTransformH
+                                origin.y: 10
+                                yScale: 1.0
+                            }
+
+                            SequentialAnimation {
+                                loops: Animation.Infinite
+                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation
+                                
+                                PropertyAnimation {
+                                    target: scaleTransformH
+                                    property: "yScale"
+                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : 0.5)
+                                    duration: index === 0 ? 350 : (index === 1 ? 250 : 450)
+                                    easing.type: Easing.InOutQuad
+                                }
+                                PropertyAnimation {
+                                    target: scaleTransformH
+                                    property: "yScale"
+                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : 0.9)
+                                    duration: index === 0 ? 250 : (index === 1 ? 450 : 350)
+                                    easing.type: Easing.InOutQuad
+                                }
+                                PropertyAnimation {
+                                    target: scaleTransformH
+                                    property: "yScale"
+                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : 0.2)
+                                    duration: index === 0 ? 450 : (index === 1 ? 350 : 250)
+                                    easing.type: Easing.InOutQuad
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Track Info (Artist - Title)
+                StyledText {
+                    id: trackText
+                    visible: service && service.showTrackInfo && root.trackDisplay !== ""
+                    text: root.trackDisplay
+                    color: Theme.surfaceText
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Font.Medium
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                    width: Math.min(implicitWidth, 140)
+                }
+
+                // 4. Playback controls (visible conditionally)
+                Row {
+                    spacing: Theme.spacingXS
+                    visible: service ? service.showPlaybackControls : false
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.verticalCenter: parent.verticalCenter
+                        DankIcon {
+                            name: "skip_previous"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: prevMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                        }
+                    }
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.verticalCenter: parent.verticalCenter
+                        DankIcon {
+                            name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: playMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
+                        }
+                    }
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.verticalCenter: parent.verticalCenter
+                        DankIcon {
+                            name: "skip_next"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: nextMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                        }
+                    }
+
+                    // A subtle separator
+                    StyledRect {
+                        width: 1
+                        height: Theme.barIconSize(root.barThickness, -4)
+                        color: Theme.surfaceVariant
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                // 5. Heart Control
+                Item {
+                    id: heartContainer
+                    width: Theme.barIconSize(root.barThickness, -2)
+                    height: width
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    DankIcon {
+                        name: root.isLoved ? "favorite" : "favorite_border"
+                        size: parent.width
+                        color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                        anchors.centerIn: parent
+                    }
+
+                    MouseArea {
+                        id: heartMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: function(mouse) {
+                            if (mouse.button === Qt.LeftButton) {
+                                root.toggleLove();
+                            } else if (mouse.button === Qt.RightButton) {
+                                if (root.service) root.service.checkTrackInfo(); // Force refresh
+                            }
+                        }
+                    }
+                }
+
+                StyledText {
+                    visible: root.isLoved
+                    text: root.isLoved ? "Loved" : ""
+                    color: "#ff4b72"
+                    font.pixelSize: Theme.fontSizeSmall - 1
+                    font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+    }
+
+    verticalBarPill: Component {
+        Item {
+            visible: root.hasActiveMedia
+            width: root.hasActiveMedia ? (parent.width || 24) : 0
+            implicitHeight: root.hasActiveMedia ? pillCol.height : 0
+
+            ToolTip.visible: root.hasActiveMedia && (pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse)
+            ToolTip.delay: 600
+            ToolTip.text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+
+            // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love.
+            // Placed outside Column so it doesn't break Column layout positioning.
+            MouseArea {
+                id: pillMouseV
+                anchors.fill: parent
+                visible: service ? !service.showPlaybackControls : true
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton) {
+                        root.toggleLove();
+                    } else if (mouse.button === Qt.RightButton) {
+                        if (root.service) root.service.checkTrackInfo();
+                    }
+                }
+            }
+
+            Column {
+                id: pillCol
+                spacing: Theme.spacingS
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                // 1. Album Art Thumbnail (vertical)
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 4
+                    color: Theme.surfaceVariant
+                    clip: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl !== ""
+
+                    Image {
+                        anchors.fill: parent
+                        source: service && service.activePlayer ? (service.activePlayer.trackArtUrl || "") : ""
+                        fillMode: Image.PreserveAspectCrop
+                    }
+                }
+
+                // 2. Music Playing Wave Animation (vertical)
+                Row {
+                    spacing: 2
+                    width: 10
+                    height: 10
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
+
+                    Repeater {
+                        model: 3
+                        Rectangle {
+                            width: 2
+                            height: parent.height
+                            radius: 1
+                            color: Theme.primary
+                            anchors.bottom: parent.bottom
+                            
+                            transform: Scale {
+                                id: scaleTransformV
+                                origin.y: 10
+                                yScale: 1.0
+                            }
+
+                            SequentialAnimation {
+                                loops: Animation.Infinite
+                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation
+                                
+                                PropertyAnimation {
+                                    target: scaleTransformV
+                                    property: "yScale"
+                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : 0.5)
+                                    duration: index === 0 ? 350 : (index === 1 ? 250 : 450)
+                                    easing.type: Easing.InOutQuad
+                                }
+                                PropertyAnimation {
+                                    target: scaleTransformV
+                                    property: "yScale"
+                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : 0.9)
+                                    duration: index === 0 ? 250 : (index === 1 ? 450 : 350)
+                                    easing.type: Easing.InOutQuad
+                                }
+                                PropertyAnimation {
+                                    target: scaleTransformV
+                                    property: "yScale"
+                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : 0.2)
+                                    duration: index === 0 ? 450 : (index === 1 ? 350 : 250)
+                                    easing.type: Easing.InOutQuad
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Playback controls (visible conditionally, vertical)
+                Column {
+                    spacing: Theme.spacingXS
+                    visible: service ? service.showPlaybackControls : false
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        DankIcon {
+                            name: "skip_previous"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: prevMouseV
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                        }
+                    }
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        DankIcon {
+                            name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: playMouseV
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
+                        }
+                    }
+
+                    Item {
+                        width: Theme.barIconSize(root.barThickness, -2)
+                        height: width
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        DankIcon {
+                            name: "skip_next"
+                            size: parent.width
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+                        MouseArea {
+                            id: nextMouseV
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                        }
+                    }
+
+                    // A subtle separator
+                    StyledRect {
+                        width: Theme.barIconSize(root.barThickness, -4)
+                        height: 1
+                        color: Theme.surfaceVariant
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                }
+
+                // 4. Heart Control (vertical)
+                Item {
+                    id: heartContainerV
+                    width: Theme.barIconSize(root.barThickness, -2)
+                    height: width
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    DankIcon {
+                        name: root.isLoved ? "favorite" : "favorite_border"
+                        size: parent.width
+                        color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                        anchors.centerIn: parent
+                    }
+
+                    MouseArea {
+                        id: heartMouseV
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: function(mouse) {
+                            if (mouse.button === Qt.LeftButton) {
+                                root.toggleLove();
+                            } else if (mouse.button === Qt.RightButton) {
+                                if (root.service) root.service.checkTrackInfo(); // Force refresh
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
