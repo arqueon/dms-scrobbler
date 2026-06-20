@@ -9,11 +9,21 @@ import Quickshell.Services.Mpris
 PluginComponent {
     id: root
 
+    popoutWidth: 240
+
     readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
 
     readonly property bool isLoved: service ? service.isLoved : false
     readonly property bool hasActiveMedia: !!(service && service.activePlayer && service.trackTitle && service.isPlayerWhitelisted(service.playerIdentity))
     readonly property string trackDisplay: service ? service.trackArtist + " - " + service.trackTitle : ""
+
+    readonly property bool isCavaActive: {
+        if (!CavaService || !CavaService.values || CavaService.values.length === 0) return false;
+        for (var i = 0; i < CavaService.values.length; i++) {
+            if (CavaService.values[i] > 0) return true;
+        }
+        return false;
+    }
 
     function toggleLove() {
         if (service) service.toggleLoveCurrentTrack();
@@ -26,7 +36,7 @@ PluginComponent {
             showCloseButton: true
 
             Column {
-                width: 220
+                width: parent.width
                 spacing: Theme.spacingM
                 leftPadding: Theme.spacingM
                 rightPadding: Theme.spacingM
@@ -44,11 +54,9 @@ PluginComponent {
                     Image {
                         id: popoutArt
                         anchors.fill: parent
-                        source: service && service.activePlayer && service.activePlayer.trackArtUrl !== ""
-                                ? service.activePlayer.trackArtUrl
-                                : ""
+                        source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
-                        visible: !!(service && service.activePlayer && service.activePlayer.trackArtUrl)
+                        visible: !!(service && service.trackArtUrl)
                     }
 
                     // Placeholder if no cover art
@@ -242,11 +250,11 @@ PluginComponent {
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: !!(service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl)
+                    visible: !!(service && service.showAlbumArt && service.trackArtUrl)
 
                     Image {
                         anchors.fill: parent
-                        source: service && service.activePlayer ? (service.activePlayer.trackArtUrl || "") : ""
+                        source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
                     }
                 }
@@ -265,7 +273,7 @@ PluginComponent {
                         Rectangle {
                             width: 2
                             // Use live Cava frequencies if available, fallback to scale animation
-                            height: (CavaService && CavaService.values && CavaService.values.length > index) 
+                            height: (root.isCavaActive && CavaService.values.length > index) 
                                     ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
                                     : 16
                             radius: 1
@@ -280,7 +288,7 @@ PluginComponent {
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0))
+                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && !root.isCavaActive)
                                 
                                 PropertyAnimation {
                                     target: scaleTransformH
@@ -481,11 +489,11 @@ PluginComponent {
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: !!(service && service.showAlbumArt && service.activePlayer && service.activePlayer.trackArtUrl)
+                    visible: !!(service && service.showAlbumArt && service.trackArtUrl)
 
                     Image {
                         anchors.fill: parent
-                        source: service && service.activePlayer ? (service.activePlayer.trackArtUrl || "") : ""
+                        source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
                     }
                 }
@@ -502,7 +510,7 @@ PluginComponent {
                         model: 5
                         Rectangle {
                             width: 2
-                            height: (CavaService && CavaService.values && CavaService.values.length > index) 
+                            height: (root.isCavaActive && CavaService.values.length > index) 
                                     ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
                                     : 16
                             radius: 1
@@ -517,7 +525,7 @@ PluginComponent {
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0))
+                                running: !!(service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && !root.isCavaActive)
                                 
                                 PropertyAnimation {
                                     target: scaleTransformV

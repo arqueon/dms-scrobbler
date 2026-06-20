@@ -138,7 +138,22 @@ PluginComponent {
         return cleanTitleSuffix(title);
     }
 
-    readonly property string trackAlbum: activePlayer ? cleanTitleSuffix(activePlayer.trackAlbum || "") : ""
+    property string lastfmArtUrl: ""
+    property string lastfmAlbum: ""
+
+    readonly property string trackArtUrl: {
+        if (activePlayer && activePlayer.trackArtUrl && activePlayer.trackArtUrl.trim() !== "") {
+            return activePlayer.trackArtUrl;
+        }
+        return lastfmArtUrl;
+    }
+
+    readonly property string trackAlbum: {
+        if (activePlayer && activePlayer.trackAlbum && activePlayer.trackAlbum.trim() !== "") {
+            return cleanTitleSuffix(activePlayer.trackAlbum);
+        }
+        return lastfmAlbum;
+    }
 
     function cleanTitleSuffix(title) {
         if (!title) return "";
@@ -174,6 +189,8 @@ PluginComponent {
         playtimeCounter = 0;
         scrobbledThisTrack = false;
         isLoved = false;
+        lastfmArtUrl = "";
+        lastfmAlbum = "";
         trackStartTime = Math.floor(Date.now() / 1000);
 
         if (!activePlayer || !trackTitle || !trackArtist) {
@@ -298,6 +315,12 @@ PluginComponent {
                 var json = JSON.parse(output);
                 if (json.loved !== undefined) {
                     isLoved = json.loved;
+                }
+                if (json.album_art !== undefined) {
+                    lastfmArtUrl = json.album_art;
+                }
+                if (json.album !== undefined) {
+                    lastfmAlbum = json.album;
                 }
             } catch(e) {
                 // Ignore parsing errors for get-info

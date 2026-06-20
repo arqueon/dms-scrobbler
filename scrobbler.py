@@ -188,10 +188,25 @@ def main():
             "username": username,
         }
         res = call_api("track.getInfo", params)
-        if "track" in res and "userloved" in res["track"]:
-            print_json({"loved": res["track"]["userloved"] == "1"})
-        else:
-            print_json({"loved": False, "raw": res})
+        info = {"loved": False}
+        if "track" in res:
+            if "userloved" in res["track"]:
+                info["loved"] = res["track"]["userloved"] == "1"
+            if "album" in res["track"]:
+                album_data = res["track"]["album"]
+                if "title" in album_data:
+                    info["album"] = album_data["title"]
+                if "image" in album_data:
+                    images = album_data["image"]
+                    art_url = ""
+                    for img in images:
+                        if img.get("size") == "extralarge":
+                            art_url = img.get("#text")
+                        elif img.get("size") == "large" and not art_url:
+                            art_url = img.get("#text")
+                    if art_url:
+                        info["album_art"] = art_url
+        print_json(info)
             
     else:
         print_json({"error": -1, "message": f"Unknown command: {cmd}"})
