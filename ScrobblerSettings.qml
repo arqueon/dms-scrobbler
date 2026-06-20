@@ -149,6 +149,7 @@ PluginSettings {
                       : "Not authenticated. Token/Session Key is missing."
                 color: root.service && root.service.username ? Theme.primary : Theme.errorText
                 font.pixelSize: Theme.fontSizeSmall
+                textFormat: Text.StyledText
             }
         }
     }
@@ -232,14 +233,15 @@ PluginSettings {
 
             StyledText {
                 width: parent.width
-                text: "• Toggle love/unlove: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler toggleLove</font>\n" +
-                      "• Love current song: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler love</font>\n" +
-                      "• Unlove current song: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler unlove</font>\n" +
+                text: "• Toggle love/unlove: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler toggleLove</font><br/>" +
+                      "• Love current song: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler love</font><br/>" +
+                      "• Unlove current song: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler unlove</font><br/>" +
                       "• Check scrobbler status: <font color='" + Theme.primary + "'>dms ipc call lastfmScrobbler status</font>"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceText
                 wrapMode: Text.WrapAnywhere
+                textFormat: Text.StyledText
             }
         }
     }
