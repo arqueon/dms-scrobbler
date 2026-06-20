@@ -9,7 +9,8 @@ import Quickshell.Services.Mpris
 PluginComponent {
     id: root
 
-    popoutWidth: 440
+    popoutWidth: 280
+    property bool showPlayerList: false
 
     readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
 
@@ -42,275 +43,333 @@ PluginComponent {
                 rightPadding: Theme.spacingM
                 bottomPadding: Theme.spacingM
 
-                Row {
-                    width: parent.width - Theme.spacingM * 2
-                    spacing: Theme.spacingL
+                // 1. Album Cover Art (Large, Centered)
+                Rectangle {
+                    width: 180
+                    height: 180
+                    radius: Theme.cornerRadius
+                    color: Theme.surfaceVariant
+                    clip: true
+                    anchors.horizontalCenter: parent.horizontalCenter
 
-                    // Left Column: Album Art + Player Selector
-                    Column {
-                        width: 150
+                    Image {
+                        id: popoutArt
+                        anchors.fill: parent
+                        source: service ? service.trackArtUrl : ""
+                        fillMode: Image.PreserveAspectCrop
+                        visible: !!(service && service.trackArtUrl)
+                    }
+
+                    // Placeholder if no cover art
+                    DankIcon {
+                        visible: !popoutArt.visible
+                        name: "music_note"
+                        size: 64
+                        color: Theme.surfaceVariantText
+                        anchors.centerIn: parent
+                    }
+                }
+
+                // 2. Track Metadata (Title, Artist, Album)
+                Column {
+                    width: parent.width
+                    spacing: Theme.spacingXS
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service ? root.service.trackTitle : "No song playing"
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Font.Bold
+                        color: Theme.surfaceText
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service ? root.service.trackArtist : ""
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.primary
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
+                        font.pixelSize: Theme.fontSizeSmall - 1
+                        color: Theme.surfaceVariantText
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        visible: text !== ""
+                    }
+                }
+
+                // 3. Playback & Love Controls Row
+                Row {
+                    spacing: Theme.spacingM
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    // Love / Heart button
+                    StyledRect {
+                        width: 38
+                        height: 38
+                        radius: 19
+                        color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+
+                        DankIcon {
+                            name: root.isLoved ? "favorite" : "favorite_border"
+                            size: 20
+                            color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: loveMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleLove()
+                        }
+                    }
+
+                    // Previous Track
+                    StyledRect {
+                        width: 38
+                        height: 38
+                        radius: 19
+                        color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        visible: !!(service && service.activePlayer)
+
+                        DankIcon {
+                            name: "skip_previous"
+                            size: 20
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: prevMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                        }
+                    }
+
+                    // Play / Pause (middle)
+                    StyledRect {
+                        width: 44
+                        height: 44
+                        radius: 22
+                        color: playMouseP.containsPress ? Theme.surfaceVariant : (playMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        visible: !!(service && service.activePlayer)
+
+                        DankIcon {
+                            name: service && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
+                            size: 24
+                            color: Theme.primary
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: playMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
+                        }
+                    }
+
+                    // Next Track
+                    StyledRect {
+                        width: 38
+                        height: 38
+                        radius: 19
+                        color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        visible: !!(service && service.activePlayer)
+
+                        DankIcon {
+                            name: "skip_next"
+                            size: 20
+                            color: Theme.widgetIconColor
+                            anchors.centerIn: parent
+                        }
+
+                        MouseArea {
+                            id: nextMouseP
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                        }
+                    }
+                }
+
+                // 4. Source Selector Dropdown Button
+                Rectangle {
+                    width: parent.width
+                    height: 36
+                    radius: Theme.cornerRadius
+                    color: sourceMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer
+                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.2)
+                    border.width: 1
+
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingM
+                        anchors.rightMargin: Theme.spacingM
                         spacing: Theme.spacingS
 
-                        Rectangle {
-                            width: 150
-                            height: 150
-                            radius: Theme.cornerRadius
-                            color: Theme.surfaceVariant
-                            clip: true
-
-                            Image {
-                                id: popoutArt
-                                anchors.fill: parent
-                                source: service ? service.trackArtUrl : ""
-                                fillMode: Image.PreserveAspectCrop
-                                visible: !!(service && service.trackArtUrl)
-                            }
-
-                            DankIcon {
-                                visible: !popoutArt.visible
-                                name: "music_note"
-                                size: 48
-                                color: Theme.surfaceVariantText
-                                anchors.centerIn: parent
-                            }
-                        }
-
-                        StyledText {
-                            text: "Media Sources"
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.weight: Font.Bold
+                        DankIcon {
+                            name: "assistant_device"
+                            size: 18
                             color: Theme.primary
-                            width: parent.width
-                        }
-
-                        ScrollView {
-                            width: 150
-                            height: 110
-                            clip: true
-
-                            Column {
-                                width: 150
-                                spacing: 4
-
-                                Rectangle {
-                                    width: 150
-                                    height: 28
-                                    radius: Theme.cornerRadius - 2
-                                    color: (service && service.manualPlayerIdentity === "") 
-                                            ? Theme.primary 
-                                            : (autoMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                                    border.color: (service && service.manualPlayerIdentity === "") ? Theme.primary : "transparent"
-                                    border.width: 1
-
-                                    StyledText {
-                                        text: "Auto (Smart)"
-                                        anchors.centerIn: parent
-                                        font.pixelSize: Theme.fontSizeSmall - 1
-                                        color: (service && service.manualPlayerIdentity === "") ? Theme.onPrimary : Theme.surfaceText
-                                        font.weight: (service && service.manualPlayerIdentity === "") ? Font.Bold : Font.Normal
-                                    }
-
-                                    MouseArea {
-                                        id: autoMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: if (service) service.manualPlayerIdentity = ""
-                                    }
-                                }
-
-                                Repeater {
-                                    model: MprisController.availablePlayers
-
-                                    Rectangle {
-                                        required property var modelData
-                                        width: 150
-                                        height: 28
-                                        radius: Theme.cornerRadius - 2
-                                        
-                                        readonly property bool isActive: service && service.activePlayer === modelData
-                                        readonly property bool isSelectedManually: service && service.manualPlayerIdentity === modelData.identity
-                                        
-                                        color: isSelectedManually 
-                                                ? Theme.primary 
-                                                : (isActive ? Theme.surfaceContainerHigh : (playerItemMouse.containsMouse ? Theme.surfaceContainer : Theme.surfaceContainerLow))
-                                        border.color: isActive ? Theme.primary : "transparent"
-                                        border.width: 1
-
-                                        Row {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 6
-                                            anchors.rightMargin: 6
-                                            spacing: 4
-                                            clip: true
-
-                                            DankIcon {
-                                                name: "music_note"
-                                                size: 12
-                                                color: isSelectedManually ? Theme.onPrimary : (isActive ? Theme.primary : Theme.surfaceText)
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-
-                                            StyledText {
-                                                text: modelData.identity || "Player"
-                                                font.pixelSize: Theme.fontSizeSmall - 1
-                                                color: isSelectedManually ? Theme.onPrimary : Theme.surfaceText
-                                                font.weight: isActive ? Font.Bold : Font.Normal
-                                                elide: Text.ElideRight
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                width: parent.width - 18
-                                            }
-                                        }
-
-                                        MouseArea {
-                                            id: playerItemMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                if (service) {
-                                                    service.manualPlayerIdentity = modelData.identity;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Right Column: Metadata, Controls, Scrobbler info
-                    Column {
-                        width: parent.width - 150 - parent.spacing
-                        spacing: Theme.spacingM
-                        anchors.verticalCenter: parent.verticalCenter
-
-                        Column {
-                            width: parent.width
-                            spacing: Theme.spacingXS
-
-                            StyledText {
-                                width: parent.width
-                                text: root.service ? root.service.trackTitle : "No song playing"
-                                font.pixelSize: Theme.fontSizeMedium
-                                font.weight: Font.Bold
-                                color: Theme.surfaceText
-                                horizontalAlignment: Text.AlignLeft
-                                elide: Text.ElideRight
-                            }
-
-                            StyledText {
-                                width: parent.width
-                                text: root.service ? root.service.trackArtist : ""
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.weight: Font.Medium
-                                color: Theme.primary
-                                horizontalAlignment: Text.AlignLeft
-                                elide: Text.ElideRight
-                            }
-
-                            StyledText {
-                                width: parent.width
-                                text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
-                                font.pixelSize: Theme.fontSizeSmall - 1
-                                color: Theme.surfaceVariantText
-                                horizontalAlignment: Text.AlignLeft
-                                elide: Text.ElideRight
-                                visible: text !== ""
-                            }
-                        }
-
-                        Row {
-                            spacing: Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            StyledRect {
-                                width: 36
-                                height: 36
-                                radius: 18
-                                color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                                visible: !!(service && service.activePlayer)
-
-                                DankIcon {
-                                    name: "skip_previous"
-                                    size: 20
-                                    color: Theme.widgetIconColor
-                                    anchors.centerIn: parent
-                                }
-
-                                MouseArea {
-                                    id: prevMouseP
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (service && service.activePlayer) service.activePlayer.previous()
-                                }
-                            }
-
-                            StyledRect {
-                                width: 44
-                                height: 44
-                                radius: 22
-                                color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-
-                                DankIcon {
-                                    name: root.isLoved ? "favorite" : "favorite_border"
-                                    size: 24
-                                    color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
-                                    anchors.centerIn: parent
-                                }
-
-                                MouseArea {
-                                    id: loveMouseP
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.toggleLove()
-                                }
-                            }
-
-                            StyledRect {
-                                width: 36
-                                height: 36
-                                radius: 18
-                                color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                                visible: !!(service && service.activePlayer)
-
-                                DankIcon {
-                                    name: "skip_next"
-                                    size: 20
-                                    color: Theme.widgetIconColor
-                                    anchors.centerIn: parent
-                                }
-
-                                MouseArea {
-                                    id: nextMouseP
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (service && service.activePlayer) service.activePlayer.next()
-                                }
-                            }
+                            anchors.verticalCenter: parent.verticalCenter
                         }
 
                         StyledText {
-                            width: parent.width
-                            text: {
-                                var str = "";
-                                if (service && service.username) {
-                                    str += "Scrobbling as: <b>" + service.username + "</b><br/>";
-                                }
-                                if (service && service.activePlayer) {
-                                    str += "Source: " + service.playerIdentity;
-                                }
-                                return str;
-                            }
-                            font.pixelSize: Theme.fontSizeSmall - 2
+                            text: service && service.manualPlayerIdentity !== ""
+                                    ? "Source: " + service.manualPlayerIdentity
+                                    : "Source: Auto (Smart)"
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceText
+                            elide: Text.ElideRight
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 48
+                        }
+
+                        DankIcon {
+                            name: root.showPlayerList ? "keyboard_arrow_up" : "keyboard_arrow_down"
+                            size: 18
                             color: Theme.surfaceVariantText
-                            horizontalAlignment: Text.AlignHCenter
-                            textFormat: Text.StyledText
+                            anchors.verticalCenter: parent.verticalCenter
                         }
                     }
+
+                    MouseArea {
+                        id: sourceMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.showPlayerList = !root.showPlayerList
+                    }
+                }
+
+                // 5. Expandable Player List
+                Column {
+                    width: parent.width
+                    spacing: 4
+                    visible: root.showPlayerList
+
+                    Rectangle {
+                        width: parent.width
+                        height: 32
+                        radius: 4
+                        color: (service && service.manualPlayerIdentity === "") 
+                                ? (Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12) : "transparent") 
+                                : (autoMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                        border.color: (service && service.manualPlayerIdentity === "") ? (Theme.primary || "transparent") : "transparent"
+                        border.width: 1
+
+                        StyledText {
+                            text: "Auto (Smart Selection)"
+                            anchors.centerIn: parent
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: (service && service.manualPlayerIdentity === "") ? (Theme.primary || Theme.surfaceText) : Theme.surfaceText
+                            font.weight: (service && service.manualPlayerIdentity === "") ? Font.Bold : Font.Normal
+                        }
+
+                        MouseArea {
+                            id: autoMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (service) service.manualPlayerIdentity = "";
+                                root.showPlayerList = false;
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: MprisController.availablePlayers
+
+                        Rectangle {
+                            required property var modelData
+                            width: parent.width
+                            height: 32
+                            radius: 4
+                            
+                            readonly property bool isActive: service && service.activePlayer === modelData
+                            readonly property bool isSelectedManually: service && service.manualPlayerIdentity === modelData.identity
+                            
+                            color: isSelectedManually 
+                                    ? (Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12) : "transparent") 
+                                    : (isActive ? Theme.surfaceContainerHigh : (playerItemMouse.containsMouse ? Theme.surfaceContainer : Theme.surfaceContainerLow))
+                            border.color: isSelectedManually ? (Theme.primary || "transparent") : (isActive && Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4) : "transparent")
+                            border.width: 1
+
+                            Row {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.spacingM
+                                anchors.rightMargin: Theme.spacingM
+                                spacing: Theme.spacingS
+                                clip: true
+
+                                DankIcon {
+                                    name: "music_note"
+                                    size: 14
+                                    color: isActive ? Theme.primary : Theme.surfaceText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: modelData.identity || "Player"
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: isActive ? Theme.primary : Theme.surfaceText
+                                    font.weight: isActive ? Font.Bold : Font.Normal
+                                    elide: Text.ElideRight
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - 24
+                                }
+                            }
+
+                            MouseArea {
+                                id: playerItemMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (service) {
+                                        service.manualPlayerIdentity = modelData.identity;
+                                    }
+                                    root.showPlayerList = false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6. Source & Username footer
+                StyledText {
+                    width: parent.width
+                    text: {
+                        var str = "";
+                        if (service && service.username) {
+                            str += "Scrobbling as: <b>" + service.username + "</b><br/>";
+                        }
+                        if (service && service.activePlayer) {
+                            str += "Source: " + service.playerIdentity;
+                        }
+                        return str;
+                    }
+                    font.pixelSize: Theme.fontSizeSmall - 2
+                    color: Theme.surfaceVariantText
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.StyledText
                 }
             }
         }
@@ -388,18 +447,61 @@ PluginComponent {
                     visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
                 }
 
-                // 3. Track Info (Artist - Title)
-                StyledText {
-                    id: trackText
+                // 3. Track Info (Artist - Title) with marquee/scrolling animation
+                Item {
+                    id: trackTextClip
                     visible: !!(service && service.showTrackInfo && root.trackDisplay !== "")
-                    text: root.trackDisplay
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.weight: Font.Medium
+                    width: trackText.needsScrolling ? 140 : trackText.implicitWidth
+                    height: 20
+                    clip: true
                     anchors.verticalCenter: parent.verticalCenter
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                    width: Math.min(implicitWidth, 140)
+
+                    StyledText {
+                        id: trackText
+                        property bool needsScrolling: implicitWidth > 140
+                        property real scrollOffset: 0
+
+                        text: root.trackDisplay
+                        color: Theme.surfaceText
+                        font.pixelSize: Theme.fontSizeSmall
+                        anchors.verticalCenter: parent.verticalCenter
+                        wrapMode: Text.NoWrap
+                        elide: needsScrolling ? Text.ElideNone : Text.ElideRight
+                        x: needsScrolling ? -scrollOffset : 0
+                        width: needsScrolling ? implicitWidth : parent.width
+
+                        onTextChanged: {
+                            scrollOffset = 0;
+                            scrollAnim.restart();
+                        }
+
+                        SequentialAnimation {
+                            id: scrollAnim
+                            running: trackText.needsScrolling && trackTextClip.visible
+                            loops: Animation.Infinite
+
+                            PauseAnimation { duration: 1500 }
+
+                            NumberAnimation {
+                                target: trackText
+                                property: "scrollOffset"
+                                from: 0
+                                to: Math.max(0, trackText.implicitWidth - 140 + 8)
+                                duration: Math.max(1000, Math.round((trackText.implicitWidth - 140 + 8) / 30 * 1000))
+                                easing.type: Easing.Linear
+                            }
+
+                            PauseAnimation { duration: 1500 }
+
+                            NumberAnimation {
+                                target: trackText
+                                property: "scrollOffset"
+                                to: 0
+                                duration: Math.max(1000, Math.round((trackText.implicitWidth - 140 + 8) / 30 * 1000))
+                                easing.type: Easing.Linear
+                            }
+                        }
+                    }
                 }
 
                 // 4. Playback controls (visible conditionally)
