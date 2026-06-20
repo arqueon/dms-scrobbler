@@ -162,8 +162,8 @@ PluginSettings {
         settingKey: "playerWhitelist"
         label: "Music Player Whitelist"
         description: "Comma-separated list of MPRIS player identities to scrobble (e.g. spotify, mpd, cider, audacious)."
-        placeholder: "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop"
-        defaultValue: "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop"
+        placeholder: "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
+        defaultValue: "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
     }
 
     SelectionSetting {

@@ -16,7 +16,7 @@ PluginComponent {
     readonly property string apiSecret: pluginData.apiSecret || ""
     readonly property string sessionKey: pluginData.sessionKey || ""
     readonly property string username: pluginData.username || ""
-    readonly property string playerWhitelist: pluginData.playerWhitelist || "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop"
+    readonly property string playerWhitelist: pluginData.playerWhitelist || "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
     readonly property int scrobbleThreshold: pluginData.scrobbleThreshold !== undefined ? pluginData.scrobbleThreshold : 50
     readonly property bool showPlaybackControls: pluginData.showPlaybackControls === true
     readonly property bool showMusicAnimation: pluginData.showMusicAnimation !== false

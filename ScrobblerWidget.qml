@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import qs.Common
 import qs.Widgets
+import qs.Services
 import qs.Modules.Plugins
 import Quickshell.Services.Mpris
 
@@ -68,53 +69,56 @@ PluginComponent {
                     }
                 }
 
-                // 2. Music Playing Wave Animation
+                // 2. Music Playing Wave / Live Audio Visualizer
                 Row {
                     id: animRow
                     spacing: 2
-                    width: 10
-                    height: 10
+                    width: 18
+                    height: 16
                     anchors.verticalCenter: parent.verticalCenter
                     visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
 
                     Repeater {
-                        model: 3
+                        model: 5
                         Rectangle {
                             width: 2
-                            height: parent.height
+                            // Use live Cava frequencies if available, fallback to scale animation
+                            height: (CavaService && CavaService.values && CavaService.values.length > index) 
+                                    ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
+                                    : 16
                             radius: 1
                             color: Theme.primary
                             anchors.bottom: parent.bottom
                             
                             transform: Scale {
                                 id: scaleTransformH
-                                origin.y: 10
+                                origin.y: 16
                                 yScale: 1.0
                             }
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation
+                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0)
                                 
                                 PropertyAnimation {
                                     target: scaleTransformH
                                     property: "yScale"
-                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : 0.5)
-                                    duration: index === 0 ? 350 : (index === 1 ? 250 : 450)
+                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : (index === 2 ? 0.4 : (index === 3 ? 0.7 : 0.3)))
+                                    duration: index === 0 ? 350 : (index === 1 ? 250 : (index === 2 ? 450 : (index === 3 ? 300 : 400)))
                                     easing.type: Easing.InOutQuad
                                 }
                                 PropertyAnimation {
                                     target: scaleTransformH
                                     property: "yScale"
-                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : 0.9)
-                                    duration: index === 0 ? 250 : (index === 1 ? 450 : 350)
+                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : (index === 2 ? 0.9 : (index === 3 ? 0.5 : 0.7)))
+                                    duration: index === 0 ? 250 : (index === 1 ? 450 : (index === 2 ? 350 : (index === 3 ? 400 : 300)))
                                     easing.type: Easing.InOutQuad
                                 }
                                 PropertyAnimation {
                                     target: scaleTransformH
                                     property: "yScale"
-                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : 0.2)
-                                    duration: index === 0 ? 450 : (index === 1 ? 350 : 250)
+                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : (index === 2 ? 0.2 : (index === 3 ? 0.9 : 0.4)))
+                                    duration: index === 0 ? 450 : (index === 1 ? 350 : (index === 2 ? 250 : (index === 3 ? 350 : 450)))
                                     easing.type: Easing.InOutQuad
                                 }
                             }
@@ -300,52 +304,54 @@ PluginComponent {
                     }
                 }
 
-                // 2. Music Playing Wave Animation (vertical)
+                // 2. Music Playing Wave / Live Audio Visualizer (vertical)
                 Row {
                     spacing: 2
-                    width: 10
-                    height: 10
+                    width: 18
+                    height: 16
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing
 
                     Repeater {
-                        model: 3
+                        model: 5
                         Rectangle {
                             width: 2
-                            height: parent.height
+                            height: (CavaService && CavaService.values && CavaService.values.length > index) 
+                                    ? Math.max(3, Math.min(16, CavaService.values[index] / 100 * 13 + 3))
+                                    : 16
                             radius: 1
                             color: Theme.primary
                             anchors.bottom: parent.bottom
                             
                             transform: Scale {
                                 id: scaleTransformV
-                                origin.y: 10
+                                origin.y: 16
                                 yScale: 1.0
                             }
 
                             SequentialAnimation {
                                 loops: Animation.Infinite
-                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation
+                                running: service && service.playbackState === MprisPlaybackState.Playing && service.showMusicAnimation && (!CavaService || !CavaService.values || CavaService.values.length === 0)
                                 
                                 PropertyAnimation {
                                     target: scaleTransformV
                                     property: "yScale"
-                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : 0.5)
-                                    duration: index === 0 ? 350 : (index === 1 ? 250 : 450)
+                                    to: index === 0 ? 0.2 : (index === 1 ? 0.9 : (index === 2 ? 0.4 : (index === 3 ? 0.7 : 0.3)))
+                                    duration: index === 0 ? 350 : (index === 1 ? 250 : (index === 2 ? 450 : (index === 3 ? 300 : 400)))
                                     easing.type: Easing.InOutQuad
                                 }
                                 PropertyAnimation {
                                     target: scaleTransformV
                                     property: "yScale"
-                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : 0.9)
-                                    duration: index === 0 ? 250 : (index === 1 ? 450 : 350)
+                                    to: index === 0 ? 0.8 : (index === 1 ? 0.3 : (index === 2 ? 0.9 : (index === 3 ? 0.5 : 0.7)))
+                                    duration: index === 0 ? 250 : (index === 1 ? 450 : (index === 2 ? 350 : (index === 3 ? 400 : 300)))
                                     easing.type: Easing.InOutQuad
                                 }
                                 PropertyAnimation {
                                     target: scaleTransformV
                                     property: "yScale"
-                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : 0.2)
-                                    duration: index === 0 ? 450 : (index === 1 ? 350 : 250)
+                                    to: index === 0 ? 0.5 : (index === 1 ? 0.7 : (index === 2 ? 0.2 : (index === 3 ? 0.9 : 0.4)))
+                                    duration: index === 0 ? 450 : (index === 1 ? 350 : (index === 2 ? 250 : (index === 3 ? 350 : 450)))
                                     easing.type: Easing.InOutQuad
                                 }
                             }
@@ -451,6 +457,23 @@ PluginComponent {
                             } else if (mouse.button === Qt.RightButton) {
                                 if (root.service) root.service.checkTrackInfo(); // Force refresh
                             }
+                        }
+                    }
+                }
+
+                // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love
+                MouseArea {
+                    id: pillMouseV
+                    anchors.fill: parent
+                    visible: service ? !service.showPlaybackControls : true
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: function(mouse) {
+                        if (mouse.button === Qt.LeftButton) {
+                            root.toggleLove();
+                        } else if (mouse.button === Qt.RightButton) {
+                            if (root.service) root.service.checkTrackInfo();
                         }
                     }
                 }
