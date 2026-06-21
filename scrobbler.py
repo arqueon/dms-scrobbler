@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 import sys
+import os
 import json
 import hashlib
 import urllib.request
 import urllib.parse
 
 API_URL = "https://ws.audioscrobbler.com/2.0/"
+REQUEST_TIMEOUT = 15
+
+# Last.fm error codes that are transient and worth retrying later.
+# 8: operation failed, 11: service offline, 16: temporarily unavailable, 29: rate limit.
+RETRYABLE_LFM_CODES = {8, 11, 16, 29}
 
 def make_signature(params, secret):
     keys = sorted(params.keys())
@@ -34,7 +40,7 @@ def call_api(method, params, secret=None, is_post=False):
             req = urllib.request.Request(url, method='GET')
         
         req.add_header('User-Agent', 'DMS-Scrobbler/1.0')
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
             res_data = response.read().decode('utf-8')
             return json.loads(res_data)
     except urllib.error.HTTPError as e:
@@ -48,6 +54,51 @@ def call_api(method, params, secret=None, is_post=False):
 
 def print_json(data):
     print(json.dumps(data))
+
+def queue_path():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    directory = os.path.join(base, "dms-scrobbler")
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, "queue.json")
+
+def load_queue():
+    try:
+        with open(queue_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (FileNotFoundError, ValueError, OSError):
+        return []
+
+def save_queue(queue):
+    try:
+        with open(queue_path(), "w", encoding="utf-8") as f:
+            json.dump(queue, f)
+    except OSError:
+        pass
+
+def enqueue(entry):
+    queue = load_queue()
+    queue.append(entry)
+    # Cap to avoid unbounded growth if the network stays down for a very long time.
+    if len(queue) > 1000:
+        queue = queue[-1000:]
+    save_queue(queue)
+    return len(queue)
+
+def is_retryable(res):
+    """True if a failed API result is transient (network/server) and worth queueing."""
+    err = res.get("error")
+    if err is None:
+        return False
+    try:
+        code = int(err)
+    except (TypeError, ValueError):
+        return False
+    if code == -1:       # connection-level failure (no network, timeout, DNS)
+        return True
+    if code >= 500:      # HTTP server error
+        return True
+    return code in RETRYABLE_LFM_CODES
 
 def main():
     if len(sys.argv) < 2:
@@ -130,10 +181,57 @@ def main():
         }
         if album:
             params["album"] = album
-            
+
         res = call_api("track.scrobble", params, secret=secret, is_post=True)
-        print_json(res)
-        
+        if "error" in res and is_retryable(res):
+            entry = {"artist": artist, "track": title, "timestamp": ts}
+            if album:
+                entry["album"] = album
+            size = enqueue(entry)
+            print_json({"queued": True, "queue_size": size})
+        else:
+            print_json(res)
+
+    elif cmd == "flush-queue":
+        if len(sys.argv) < 5:
+            print_json({"error": -1, "message": "Usage: flush-queue <api_key> <secret> <session_key>"})
+            sys.exit(1)
+        api_key = sys.argv[2]
+        secret = sys.argv[3]
+        sk = sys.argv[4]
+
+        queue = load_queue()
+        if not queue:
+            print_json({"flushed": 0, "remaining": 0})
+            return
+
+        flushed = 0
+        remaining = []
+        index = 0
+        while index < len(queue):
+            batch = queue[index:index + 50]
+            params = {"api_key": api_key, "sk": sk}
+            for j, item in enumerate(batch):
+                params["artist[%d]" % j] = item.get("artist", "")
+                params["track[%d]" % j] = item.get("track", "")
+                params["timestamp[%d]" % j] = item.get("timestamp", "")
+                if item.get("album"):
+                    params["album[%d]" % j] = item["album"]
+
+            res = call_api("track.scrobble", params, secret=secret, is_post=True)
+            if "error" in res:
+                # Still failing: keep this batch and everything after it for the next attempt.
+                remaining.extend(queue[index:])
+                break
+            flushed += len(batch)
+            index += 50
+
+        save_queue(remaining)
+        print_json({"flushed": flushed, "remaining": len(remaining)})
+
+    elif cmd == "queue-count":
+        print_json({"count": len(load_queue())})
+
     elif cmd == "love":
         if len(sys.argv) < 7:
             print_json({"error": -1, "message": "Usage: love <api_key> <secret> <session_key> <artist> <title>"})
