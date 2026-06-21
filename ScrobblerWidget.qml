@@ -498,28 +498,49 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Item {
+            id: hPill
             visible: root.hasActiveMedia
             implicitWidth: root.hasActiveMedia ? pillRow.implicitWidth : 0
             implicitHeight: root.hasActiveMedia ? (pillRow.implicitHeight || 24) : 0
 
-            // Custom tooltip with NoWrap so the text stays on one readable line
-            // (the default attached ToolTip wraps to a tall, illegible column on narrow/vertical bars).
-            ToolTip {
-                id: pillTooltip
-                visible: root.hasActiveMedia && (pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse)
-                delay: 600
-                text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
-                contentItem: StyledText {
-                    text: pillTooltip.text
-                    wrapMode: Text.NoWrap
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeSmall
+            // Use DMS's native DankTooltip (a separate layer-shell window) like the
+            // built-in bar widgets, so the tooltip is never clipped by the bar window.
+            property bool anyHover: pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse
+            onAnyHoverChanged: {
+                if (anyHover && root.hasActiveMedia) {
+                    hTipLoader.active = true;
+                    hTipDelay.restart();
+                } else {
+                    hTipDelay.stop();
+                    if (hTipLoader.item) hTipLoader.item.hide();
+                    hTipLoader.active = false;
                 }
-                background: Rectangle {
-                    color: Theme.surfaceContainer
-                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.3)
-                    border.width: 1
-                    radius: Theme.cornerRadius
+            }
+
+            Loader {
+                id: hTipLoader
+                active: false
+                sourceComponent: DankTooltip {}
+            }
+
+            Timer {
+                id: hTipDelay
+                interval: 600
+                repeat: false
+                onTriggered: {
+                    if (!hTipLoader.item) return;
+                    var currentScreen = root.parentScreen || Screen;
+                    var localPos = hPill.mapToItem(null, hPill.width / 2, 0);
+                    var isBottom = root.axis && root.axis.edge === "bottom";
+                    var tooltipY;
+                    if (isBottom) {
+                        var tooltipHeight = Theme.fontSizeSmall * 1.5 + Theme.spacingS * 2;
+                        tooltipY = currentScreen.height - root.barThickness - root.barSpacing - Theme.spacingXS - tooltipHeight;
+                    } else {
+                        tooltipY = root.barThickness + root.barSpacing + Theme.spacingXS;
+                    }
+                    hTipLoader.item.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
+                                         localPos.x, tooltipY, currentScreen, false, false);
                 }
             }
 
