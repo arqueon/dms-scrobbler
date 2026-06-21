@@ -19,6 +19,17 @@ PluginComponent {
     readonly property bool hasActiveMedia: !!(service && service.activePlayer && service.trackTitle && service.isPlayerWhitelisted(service.playerIdentity))
     readonly property string trackDisplay: service ? service.trackArtist + " - " + service.trackTitle : ""
 
+    // Vertical-bar tooltip Y offset, mirroring DMS's native bar widgets:
+    // when the vertical bar sits below a top bar (parentScreen.y > 0), shift down.
+    readonly property real minTooltipY: {
+        if (!parentScreen || !isVertical) return 0;
+        if (parentScreen.y > 0) {
+            var spacing = (barConfig && barConfig.spacing !== undefined) ? barConfig.spacing : 4;
+            return barThickness + spacing;
+        }
+        return 0;
+    }
+
     readonly property bool isCavaActive: {
         if (!CavaService || !CavaService.values || CavaService.values.length === 0) return false;
         for (var i = 0; i < CavaService.values.length; i++) {
@@ -755,27 +766,36 @@ PluginComponent {
             property bool anyHover: pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse
             onAnyHoverChanged: {
                 if (anyHover && root.hasActiveMedia) {
+                    vTipLoader.active = true;
                     vTipDelay.restart();
                 } else {
                     vTipDelay.stop();
-                    vTip.hide();
+                    if (vTipLoader.item) vTipLoader.item.hide();
+                    vTipLoader.active = false;
                 }
             }
 
-            DankTooltip { id: vTip }
+            Loader {
+                id: vTipLoader
+                active: false
+                sourceComponent: DankTooltip {}
+            }
 
             Timer {
                 id: vTipDelay
                 interval: 600
                 repeat: false
                 onTriggered: {
-                    var p = vPill.mapToGlobal(0, 0);
-                    var centerX = p.x + vPill.width / 2;
-                    var onLeftHalf = centerX < (Screen.width / 2);
-                    var tx = onLeftHalf ? (p.x + vPill.width + 8) : (p.x - 8);
-                    var ty = p.y + vPill.height / 2;
-                    vTip.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
-                              tx, ty, null, onLeftHalf, !onLeftHalf);
+                    if (!vTipLoader.item) return;
+                    var currentScreen = root.parentScreen || Screen;
+                    var localPos = vPill.mapToItem(null, vPill.width / 2, vPill.height / 2);
+                    var adjustedY = localPos.y + root.minTooltipY;
+                    var isLeft = root.axis && root.axis.edge === "left";
+                    var tooltipX = isLeft
+                        ? (root.barThickness + root.barSpacing + Theme.spacingXS)
+                        : (currentScreen.width - root.barThickness - root.barSpacing - Theme.spacingXS);
+                    vTipLoader.item.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
+                                         tooltipX, adjustedY, currentScreen, isLeft, !isLeft);
                 }
             }
 
