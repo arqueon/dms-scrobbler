@@ -53,6 +53,18 @@ PluginComponent {
         case "refresh":
             service.checkTrackInfo();
             break;
+        case "lastfm_artist":
+            if (service.trackArtist && service.trackArtist.length > 0) {
+                Qt.openUrlExternally("https://www.last.fm/music/" + encodeURIComponent(service.trackArtist).replace(/%20/g, "+"));
+            }
+            break;
+        case "lastfm_track":
+            if (service.trackArtist && service.trackTitle) {
+                Qt.openUrlExternally("https://www.last.fm/music/"
+                    + encodeURIComponent(service.trackArtist).replace(/%20/g, "+")
+                    + "/_/" + encodeURIComponent(service.trackTitle).replace(/%20/g, "+"));
+            }
+            break;
         case "none":
         default:
             break;
@@ -732,28 +744,38 @@ PluginComponent {
 
     verticalBarPill: Component {
         Item {
+            id: vPill
             visible: root.hasActiveMedia
             implicitWidth: root.hasActiveMedia ? root.barThickness : 0
             implicitHeight: root.hasActiveMedia ? pillCol.implicitHeight : 0
 
-            // Custom tooltip with NoWrap so the text stays on one readable line
-            // (the default attached ToolTip wraps to a tall, illegible column on the narrow vertical bar).
-            ToolTip {
-                id: pillTooltipV
-                visible: root.hasActiveMedia && (pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse)
-                delay: 600
-                text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
-                contentItem: StyledText {
-                    text: pillTooltipV.text
-                    wrapMode: Text.NoWrap
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeSmall
+            // The bar window is too narrow on a vertical panel for an in-window tooltip
+            // (it gets clipped/wrapped). DankTooltip is a separate layer-shell window
+            // positioned by global screen coordinates, so it renders fully and readable.
+            property bool anyHover: pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse
+            onAnyHoverChanged: {
+                if (anyHover && root.hasActiveMedia) {
+                    vTipDelay.restart();
+                } else {
+                    vTipDelay.stop();
+                    vTip.hide();
                 }
-                background: Rectangle {
-                    color: Theme.surfaceContainer
-                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.3)
-                    border.width: 1
-                    radius: Theme.cornerRadius
+            }
+
+            DankTooltip { id: vTip }
+
+            Timer {
+                id: vTipDelay
+                interval: 600
+                repeat: false
+                onTriggered: {
+                    var p = vPill.mapToGlobal(0, 0);
+                    var centerX = p.x + vPill.width / 2;
+                    var onLeftHalf = centerX < (Screen.width / 2);
+                    var tx = onLeftHalf ? (p.x + vPill.width + 8) : (p.x - 8);
+                    var ty = p.y + vPill.height / 2;
+                    vTip.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
+                              tx, ty, null, onLeftHalf, !onLeftHalf);
                 }
             }
 

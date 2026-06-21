@@ -61,7 +61,7 @@ You can customize the widget layout directly inside the settings page:
 - **Debug Logging** (Advanced): Print verbose diagnostics to the DMS logs for troubleshooting. Off by default; credentials are never logged.
 
 ### Mouse Actions
-Each mouse button on the bar pill is configurable in settings (**Left Click**, **Middle Click / Three-Finger Tap**, **Right Click**). Available actions: *Open Popout, Play/Pause, Toggle Love, Next Track, Previous Track, Refresh Info, Nothing*.
+Each mouse button on the bar pill is configurable in settings (**Left Click**, **Middle Click / Three-Finger Tap**, **Right Click**). Available actions: *Open Popout, Play/Pause, Toggle Love, Next Track, Previous Track, Refresh Info, Open Artist on Last.fm, Open Track on Last.fm, Nothing*. The Last.fm actions open the current artist/track page in your default browser.
 
 Defaults:
 - **Left Click** → Open Popout

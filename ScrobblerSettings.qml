@@ -263,6 +263,8 @@ PluginSettings {
             { label: "Next Track", value: "next" },
             { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
+            { label: "Open Artist on Last.fm", value: "lastfm_artist" },
+            { label: "Open Track on Last.fm", value: "lastfm_track" },
             { label: "Nothing", value: "none" }
         ]
         defaultValue: "popout"
@@ -278,6 +280,8 @@ PluginSettings {
             { label: "Next Track", value: "next" },
             { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
+            { label: "Open Artist on Last.fm", value: "lastfm_artist" },
+            { label: "Open Track on Last.fm", value: "lastfm_track" },
             { label: "Nothing", value: "none" }
         ]
         defaultValue: "love"
@@ -293,6 +297,8 @@ PluginSettings {
             { label: "Next Track", value: "next" },
             { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
+            { label: "Open Artist on Last.fm", value: "lastfm_artist" },
+            { label: "Open Track on Last.fm", value: "lastfm_track" },
             { label: "Nothing", value: "none" }
         ]
         defaultValue: "playpause"
