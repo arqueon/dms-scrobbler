@@ -13,7 +13,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "Last.fm Scrobbler Settings"
+        text: "DMS Last.fm Scrobbler Settings"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
         color: Theme.surfaceText
@@ -184,8 +184,36 @@ PluginSettings {
     ToggleSetting {
         settingKey: "showPlaybackControls"
         label: "Show Playback Controls"
-        description: "Show play/pause and skip buttons next to the heart button on the bar (functions as a media controller replacement)"
+        description: "Master switch for the play/pause and skip buttons on the bar (functions as a media controller replacement). Pick which ones below."
         defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "showPrevButton"
+        label: "    • Previous Button"
+        description: "Show the skip-previous button (requires Show Playback Controls)"
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showPlayButton"
+        label: "    • Play/Pause Button"
+        description: "Show the play/pause button (requires Show Playback Controls)"
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showNextButton"
+        label: "    • Next Button"
+        description: "Show the skip-next button (requires Show Playback Controls)"
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "showLoveButton"
+        label: "Show Love Button"
+        description: "Show the heart (love/unlove) button on the bar. Love is still available via the popout and IPC when hidden."
+        defaultValue: true
     }
 
     ToggleSetting {
@@ -209,7 +237,83 @@ PluginSettings {
         defaultValue: true
     }
 
-    // 4. Instructions
+    // 3b. Mouse Actions
+    StyledText {
+        text: "Mouse Actions"
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.DemiBold
+        color: Theme.surfaceText
+    }
+
+    StyledText {
+        width: parent.width
+        wrapMode: Text.WordWrap
+        text: "Assign an action to each mouse button on the bar pill. Middle click is also triggered by a three-finger tap on most touchpads."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+    }
+
+    SelectionSetting {
+        settingKey: "pillLeftAction"
+        label: "Left Click"
+        options: [
+            { label: "Open Popout", value: "popout" },
+            { label: "Play / Pause", value: "playpause" },
+            { label: "Toggle Love", value: "love" },
+            { label: "Next Track", value: "next" },
+            { label: "Previous Track", value: "previous" },
+            { label: "Refresh Info", value: "refresh" },
+            { label: "Nothing", value: "none" }
+        ]
+        defaultValue: "popout"
+    }
+
+    SelectionSetting {
+        settingKey: "pillMiddleAction"
+        label: "Middle Click / Three-Finger Tap"
+        options: [
+            { label: "Toggle Love", value: "love" },
+            { label: "Play / Pause", value: "playpause" },
+            { label: "Open Popout", value: "popout" },
+            { label: "Next Track", value: "next" },
+            { label: "Previous Track", value: "previous" },
+            { label: "Refresh Info", value: "refresh" },
+            { label: "Nothing", value: "none" }
+        ]
+        defaultValue: "love"
+    }
+
+    SelectionSetting {
+        settingKey: "pillRightAction"
+        label: "Right Click"
+        options: [
+            { label: "Play / Pause", value: "playpause" },
+            { label: "Toggle Love", value: "love" },
+            { label: "Open Popout", value: "popout" },
+            { label: "Next Track", value: "next" },
+            { label: "Previous Track", value: "previous" },
+            { label: "Refresh Info", value: "refresh" },
+            { label: "Nothing", value: "none" }
+        ]
+        defaultValue: "playpause"
+    }
+
+    // 4. Advanced
+    StyledText {
+        text: "Advanced"
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.DemiBold
+        color: Theme.surfaceText
+    }
+
+    ToggleSetting {
+        settingKey: "debugLogging"
+        label: "Debug Logging"
+        description: "Print verbose diagnostics to the DMS logs. Leave off unless troubleshooting (credentials are never logged)."
+        defaultValue: false
+    }
+
+    // 5. Instructions
     StyledText {
         text: "Niri Keybinds & IPC Commands"
         font.pixelSize: Theme.fontSizeMedium

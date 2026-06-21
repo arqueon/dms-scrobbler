@@ -22,6 +22,28 @@ PluginComponent {
     readonly property bool showMusicAnimation: pluginData.showMusicAnimation !== false
     readonly property bool showAlbumArt: pluginData.showAlbumArt !== false
     readonly property bool showTrackInfo: pluginData.showTrackInfo !== false
+    readonly property bool debugLogging: pluginData.debugLogging === true
+
+    // Per-button visibility on the bar (transport buttons require showPlaybackControls).
+    readonly property bool showPrevButton: pluginData.showPrevButton !== false
+    readonly property bool showPlayButton: pluginData.showPlayButton !== false
+    readonly property bool showNextButton: pluginData.showNextButton !== false
+    readonly property bool showLoveButton: pluginData.showLoveButton !== false
+
+    // Configurable mouse actions on the bar pill.
+    // Values: "popout", "playpause", "love", "next", "previous", "refresh", "none".
+    readonly property string pillLeftAction: pluginData.pillLeftAction || "popout"
+    readonly property string pillMiddleAction: pluginData.pillMiddleAction || "love"
+    readonly property string pillRightAction: pluginData.pillRightAction || "playpause"
+
+    // Gated logger: only emits when the user enables Debug Logging in settings.
+    // Never pass secrets (API key/secret/session key) to this.
+    function dlog() {
+        if (!root.debugLogging) return;
+        var parts = [];
+        for (var i = 0; i < arguments.length; i++) parts.push(arguments[i]);
+        console.log("ScrobblerService:", parts.join(" "));
+    }
 
     function isPlayerWhitelisted(player) {
         if (!player) return false;
@@ -115,37 +137,22 @@ PluginComponent {
     readonly property int trackLength: activePlayer ? (activePlayer.length || 0) : 0
     readonly property var playbackState: activePlayer ? activePlayer.playbackState : null
 
-    // Cleaned/parsed track details for robust scrobbling
+    // Cleaned/parsed track details for robust scrobbling.
+    // Native MPRIS metadata (Spotify, mpd, ...) is trusted as-is; only web sources
+    // (browsers exposing "Artist - Title" in the window title) are parsed/cleaned.
     readonly property string trackArtist: {
         if (!activePlayer) return "";
         var artist = activePlayer.trackArtist || "";
         if (artist.trim() !== "") return artist.trim();
-        
-        var title = activePlayer.trackTitle || "";
-        if (title.indexOf(" - YouTube Music") !== -1) {
-            title = title.replace(" - YouTube Music", "");
-            var parts = title.split(" - ");
-            if (parts.length >= 2) return parts[1].trim();
-        }
-        var parts = title.split(" - ");
-        if (parts.length === 2) return parts[1].trim();
-        return "";
+        return splitWebTitle(activePlayer.trackTitle || "").artist;
     }
 
     readonly property string trackTitle: {
         if (!activePlayer) return "";
-        var title = activePlayer.trackTitle || "";
+        var rawTitle = activePlayer.trackTitle || "";
         var artist = activePlayer.trackArtist || "";
-        if (artist.trim() !== "") return cleanTitleSuffix(title);
-        
-        if (title.indexOf(" - YouTube Music") !== -1) {
-            title = title.replace(" - YouTube Music", "");
-            var parts = title.split(" - ");
-            if (parts.length >= 2) return parts[0].trim();
-        }
-        var parts = title.split(" - ");
-        if (parts.length === 2) return parts[0].trim();
-        return cleanTitleSuffix(title);
+        if (artist.trim() !== "") return cleanTitleSuffix(rawTitle);
+        return splitWebTitle(rawTitle).title;
     }
 
     property string lastfmArtUrl: ""
@@ -176,10 +183,34 @@ PluginComponent {
         return title.trim();
     }
 
+    // Remove bracketed video/web decorations like "(Official Video)", "[Lyrics]", "(HD)".
+    // Deliberately conservative: keeps meaningful parentheticals such as
+    // "(feat. X)", "(Remastered)", "(Live)", "(Acoustic)" intact for accurate scrobbles.
+    function stripDecorations(s) {
+        if (!s) return "";
+        var deco = /\s*[\(\[][^\)\]]*\b(official|lyric|lyrics|visualizer|video|mv|hd|hq|4k)\b[^\)\]]*[\)\]]/gi;
+        return s.replace(deco, "").replace(/\s{2,}/g, " ").trim();
+    }
+
+    // Parse a web/browser window title of the form "Artist - Title" into components.
+    // Splits on the FIRST " - " so titles containing extra hyphens stay intact.
+    function splitWebTitle(rawTitle) {
+        var title = cleanTitleSuffix(rawTitle);
+        var idx = title.indexOf(" - ");
+        if (idx === -1) {
+            return { "artist": "", "title": stripDecorations(title) };
+        }
+        var artist = title.substring(0, idx).trim();
+        var rest = title.substring(idx + 3).trim();
+        return { "artist": artist, "title": stripDecorations(rest) };
+    }
+
     property bool scrobbledThisTrack: false
     property bool isLoved: false
     property int playtimeCounter: 0
     property int trackStartTime: 0
+    property real lastPosition: 0
+    property int pendingScrobbles: 0
     property string scrobblerPath: ""
     property string tempToken: ""
 
@@ -193,27 +224,40 @@ PluginComponent {
         var url = Qt.resolvedUrl("scrobbler.py").toString();
         root.scrobblerPath = url.indexOf("file://") === 0 ? url.substring(7) : url;
         handleTrackChange();
+        // Drain anything that was queued while DMS was closed / offline.
+        refreshQueueCount();
+        flushQueue();
+    }
+
+    // Periodically retry sending any scrobbles queued while offline.
+    Timer {
+        id: flushTimer
+        interval: 300000 // 5 minutes
+        repeat: true
+        running: true
+        onTriggered: flushQueue()
     }
 
 
 
     function handleTrackChange() {
-        console.log("ScrobblerService: handleTrackChange called. activePlayer:", activePlayer ? activePlayer.identity : "null", "title:", trackTitle, "artist:", trackArtist, "apiKey:", apiKey, "username:", username);
+        dlog("handleTrackChange called. activePlayer:", activePlayer ? activePlayer.identity : "null", "title:", trackTitle, "artist:", trackArtist, "configured:", apiKey ? "yes" : "no", "username:", username);
         playTimer.stop();
         playtimeCounter = 0;
         scrobbledThisTrack = false;
         isLoved = false;
         lastfmArtUrl = "";
         lastfmAlbum = "";
+        lastPosition = 0;
         trackStartTime = Math.floor(Date.now() / 1000);
 
         if (!activePlayer || !trackTitle || !trackArtist) {
-            console.log("ScrobblerService: handleTrackChange early return: activePlayer, trackTitle, or trackArtist is falsy");
+            dlog("handleTrackChange early return: activePlayer, trackTitle, or trackArtist is falsy");
             return;
         }
 
         if (!isPlayerWhitelisted(activePlayer)) {
-            console.log("ScrobblerService: handleTrackChange early return: player is not whitelisted");
+            dlog("handleTrackChange early return: player is not whitelisted");
             return;
         }
 
@@ -233,27 +277,47 @@ PluginComponent {
         repeat: true
         running: activePlayer && playbackState === MprisPlaybackState.Playing && isPlayerWhitelisted(activePlayer)
         onTriggered: {
+            checkForRepeat();
             playtimeCounter += 1;
             checkScrobbleThreshold();
         }
+    }
+
+    // Detect a track being replayed from the start (position jumps back near 0
+    // while the same title/artist is loaded). MPRIS reports position in seconds.
+    function checkForRepeat() {
+        if (!activePlayer || !activePlayer.positionSupported) return;
+        var pos = activePlayer.position;
+        if (lastPosition > 15 && pos < 3) {
+            dlog("detected track repeat (position", lastPosition.toFixed(1), "->", pos.toFixed(1), "), resetting scrobble state");
+            playtimeCounter = 0;
+            scrobbledThisTrack = false;
+            trackStartTime = Math.floor(Date.now() / 1000);
+            updateNowPlaying();
+        }
+        lastPosition = pos;
+    }
+
+    // Seconds of playback required before this track scrobbles.
+    // 0 means the track is too short to scrobble (Last.fm guideline: skip < 30s).
+    readonly property int scrobbleTargetSeconds: {
+        var minLength = 30;
+        if (trackLength > 0) {
+            if (trackLength < minLength) return 0;
+            var percentageThreshold = Math.floor(trackLength * (scrobbleThreshold / 100));
+            return Math.min(percentageThreshold, 240);
+        }
+        return 240; // unknown length: fall back to the 4-minute cap
     }
 
     function checkScrobbleThreshold() {
         if (scrobbledThisTrack) return;
         if (!activePlayer || !trackTitle || !trackArtist) return;
 
-        var threshold = 240; // 4 minutes default / fallback
-        var minLength = 30;
+        var target = scrobbleTargetSeconds;
+        if (target <= 0) return; // too short to scrobble
 
-        if (trackLength > 0) {
-            if (trackLength < minLength) {
-                return; // Song is too short to scrobble according to Last.fm guidelines
-            }
-            var percentageThreshold = Math.floor(trackLength * (scrobbleThreshold / 100));
-            threshold = Math.min(percentageThreshold, 240);
-        }
-
-        if (playtimeCounter >= threshold) {
+        if (playtimeCounter >= target) {
             scrobbleTrack();
         }
     }
@@ -279,7 +343,40 @@ PluginComponent {
             trackTitle,
             trackAlbum
         ], function(code, output) {
-            // Quiet update
+            // A successful now-playing means the network is reachable again,
+            // so opportunistically drain any queued scrobbles.
+            try {
+                var json = JSON.parse(output);
+                if (!json.error && pendingScrobbles > 0) flushQueue();
+            } catch(e) {}
+        });
+    }
+
+    function refreshQueueCount() {
+        runScrobbler(["queue-count"], function(code, output) {
+            try {
+                var json = JSON.parse(output);
+                if (json.count !== undefined) pendingScrobbles = json.count;
+            } catch(e) {}
+        });
+    }
+
+    function flushQueue() {
+        if (!apiKey || !apiSecret || !sessionKey) return;
+        runScrobbler([
+            "flush-queue",
+            apiKey,
+            apiSecret,
+            sessionKey
+        ], function(code, output) {
+            try {
+                var json = JSON.parse(output);
+                if (json.flushed > 0) {
+                    dlog("flushed", json.flushed, "queued scrobbles, remaining", json.remaining);
+                    ToastService.showInfo("Sent " + json.flushed + " queued scrobble(s) to Last.fm");
+                }
+                if (json.remaining !== undefined) pendingScrobbles = json.remaining;
+            } catch(e) {}
         });
     }
 
@@ -305,8 +402,14 @@ PluginComponent {
         ], function(code, output) {
             try {
                 var json = JSON.parse(output);
-                if (json.scrobbles && json.scrobbles["@attr"] && json.scrobbles["@attr"].accepted > 0) {
+                if (json.queued) {
+                    // Network was down: it's safely persisted and will be retried.
+                    // Keep scrobbledThisTrack=true so we don't enqueue duplicates.
+                    pendingScrobbles = json.queue_size !== undefined ? json.queue_size : pendingScrobbles;
+                    ToastService.showInfo("Offline — scrobble queued: " + artist + " - " + title);
+                } else if (json.scrobbles && json.scrobbles["@attr"] && json.scrobbles["@attr"].accepted > 0) {
                     ToastService.showInfo("Scrobbled to Last.fm: " + artist + " - " + title);
+                    flushQueue(); // network is up; drain anything pending
                 } else if (json.error) {
                     scrobbledThisTrack = false;
                     ToastService.showError("Last.fm scrobble failed: " + (json.message || json.error));
@@ -320,7 +423,7 @@ PluginComponent {
 
     function checkTrackInfo() {
         if (!apiKey || !username) return;
-        console.log("ScrobblerService: running get-info for:", trackArtist, "-", trackTitle);
+        dlog("running get-info for:", trackArtist, "-", trackTitle);
         runScrobbler([
             "get-info",
             apiKey,
@@ -328,22 +431,22 @@ PluginComponent {
             trackTitle,
             username
         ], function(code, output) {
-            console.log("ScrobblerService: get-info exited with code:", code, "output:", output);
+            dlog("get-info exited with code:", code);
             try {
                 var json = JSON.parse(output);
                 if (json.loved !== undefined) {
                     isLoved = json.loved;
-                    console.log("ScrobblerService: loved state is:", isLoved);
+                    dlog("loved state is:", isLoved);
                 }
                 if (json.album_art !== undefined) {
                     lastfmArtUrl = json.album_art;
-                    console.log("ScrobblerService: cover art URL set to:", lastfmArtUrl);
+                    dlog("cover art URL set");
                 }
                 if (json.album !== undefined) {
                     lastfmAlbum = json.album;
                 }
             } catch(e) {
-                console.error("ScrobblerService: failed to parse get-info output:", e, "output was:", output);
+                dlog("failed to parse get-info output:", e);
             }
         });
     }
@@ -519,12 +622,11 @@ PluginComponent {
             stdout: SplitParser { 
                 splitMarker: ""
                 onRead: function(data) {
-                    console.log("ScrobblerService: process read data chunk:", data);
                     outputBuffer += data;
                 }
             }
             onExited: function(exitCode) {
-                console.log("ScrobblerService: process exited with code:", exitCode, "buffered output length:", outputBuffer.length);
+                root.dlog("process exited with code:", exitCode, "buffered output length:", outputBuffer.length);
                 if (callback) callback(exitCode, outputBuffer);
                 destroy();
             }

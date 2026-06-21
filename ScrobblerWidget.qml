@@ -31,10 +31,45 @@ PluginComponent {
         if (service) service.toggleLoveCurrentTrack();
     }
 
+    // Run a named pill action (configured per mouse button in settings).
+    function doAction(name) {
+        if (!service) return;
+        switch (name) {
+        case "popout":
+            if (typeof root.triggerPopout === "function") root.triggerPopout();
+            break;
+        case "playpause":
+            if (service.activePlayer) service.activePlayer.togglePlaying();
+            break;
+        case "love":
+            root.toggleLove();
+            break;
+        case "next":
+            if (service.activePlayer) service.activePlayer.next();
+            break;
+        case "previous":
+            if (service.activePlayer) service.activePlayer.previous();
+            break;
+        case "refresh":
+            service.checkTrackInfo();
+            break;
+        case "none":
+        default:
+            break;
+        }
+    }
+
+    function dispatchPillClick(button) {
+        if (!service) return;
+        if (button === Qt.LeftButton) doAction(service.pillLeftAction);
+        else if (button === Qt.MiddleButton) doAction(service.pillMiddleAction);
+        else if (button === Qt.RightButton) doAction(service.pillRightAction);
+    }
+
     popoutContent: Component {
         PopoutComponent {
             id: popout
-            headerText: "Last.fm Scrobbler"
+            headerText: "DMS Last.fm Scrobbler"
             showCloseButton: true
 
             Column {
@@ -127,6 +162,43 @@ PluginComponent {
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                         visible: text !== ""
+                    }
+                }
+
+                // 2b. Scrobble Progress
+                Column {
+                    width: parent.width
+                    spacing: Theme.spacingXS
+                    visible: !!(service && service.activePlayer && service.trackTitle && service.scrobbleTargetSeconds > 0)
+
+                    Rectangle {
+                        width: parent.width
+                        height: 4
+                        radius: 2
+                        color: Theme.surfaceVariant
+
+                        Rectangle {
+                            height: parent.height
+                            radius: 2
+                            width: parent.width * Math.max(0, Math.min(1,
+                                (service ? service.playtimeCounter : 0) /
+                                Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
+                            color: (service && service.scrobbledThisTrack) ? "#1db954" : Theme.primary
+                            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        }
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        font.pixelSize: Theme.fontSizeSmall - 2
+                        color: (service && service.scrobbledThisTrack) ? "#1db954" : Theme.surfaceVariantText
+                        text: {
+                            if (!service) return "";
+                            if (service.scrobbledThisTrack) return "Scrobbled ✓";
+                            var rem = Math.max(0, service.scrobbleTargetSeconds - service.playtimeCounter);
+                            return "Scrobbles in " + rem + "s";
+                        }
                     }
                 }
 
@@ -387,6 +459,9 @@ PluginComponent {
                         if (service && service.activePlayer) {
                             str += "Source: " + service.playerIdentity;
                         }
+                        if (service && service.pendingScrobbles > 0) {
+                            str += "<br/>⏳ " + service.pendingScrobbles + " scrobble(s) pending (offline)";
+                        }
                         return str;
                     }
                     font.pixelSize: Theme.fontSizeSmall - 2
@@ -404,29 +479,38 @@ PluginComponent {
             implicitWidth: root.hasActiveMedia ? pillRow.implicitWidth : 0
             implicitHeight: root.hasActiveMedia ? (pillRow.implicitHeight || 24) : 0
 
-            ToolTip.visible: root.hasActiveMedia && (pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse)
-            ToolTip.delay: 600
-            ToolTip.text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+            // Custom tooltip with NoWrap so the text stays on one readable line
+            // (the default attached ToolTip wraps to a tall, illegible column on narrow/vertical bars).
+            ToolTip {
+                id: pillTooltip
+                visible: root.hasActiveMedia && (pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse)
+                delay: 600
+                text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+                contentItem: StyledText {
+                    text: pillTooltip.text
+                    wrapMode: Text.NoWrap
+                    color: Theme.surfaceText
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+                background: Rectangle {
+                    color: Theme.surfaceContainer
+                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.3)
+                    border.width: 1
+                    radius: Theme.cornerRadius
+                }
+            }
 
-            // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love.
-            // Placed outside Row so it doesn't break Row layout positioning.
+            // Pill-wide MouseArea for configurable mouse actions. Sits behind the Row,
+            // so the visible control buttons keep their own click handling and this
+            // catches clicks on empty pill areas (and middle/right on the buttons).
             MouseArea {
                 id: pillMouse
                 anchors.fill: parent
-                visible: service ? !service.showPlaybackControls : true
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 onClicked: function(mouse) {
-                    if (mouse.button === Qt.LeftButton) {
-                        if (typeof root.triggerPopout === "function") {
-                            root.triggerPopout();
-                        } else {
-                            root.toggleLove();
-                        }
-                    } else if (mouse.button === Qt.RightButton) {
-                        if (root.service) root.service.checkTrackInfo();
-                    }
+                    root.dispatchPillClick(mouse.button);
                 }
             }
 
@@ -530,12 +614,13 @@ PluginComponent {
                 // 4. Playback controls (visible conditionally)
                 Row {
                     spacing: Theme.spacingXS
-                    visible: service ? service.showPlaybackControls : false
+                    visible: !!(service && service.showPlaybackControls && (service.showPrevButton || service.showPlayButton || service.showNextButton))
                     anchors.verticalCenter: parent.verticalCenter
 
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showPrevButton)
                         anchors.verticalCenter: parent.verticalCenter
                         DankIcon {
                             name: "skip_previous"
@@ -555,6 +640,7 @@ PluginComponent {
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showPlayButton)
                         anchors.verticalCenter: parent.verticalCenter
                         DankIcon {
                             name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
@@ -574,6 +660,7 @@ PluginComponent {
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showNextButton)
                         anchors.verticalCenter: parent.verticalCenter
                         DankIcon {
                             name: "skip_next"
@@ -595,6 +682,7 @@ PluginComponent {
                         width: 1
                         height: Theme.barIconSize(root.barThickness, -4)
                         color: Theme.surfaceVariant
+                        visible: !!(service && service.showLoveButton)
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
@@ -604,6 +692,7 @@ PluginComponent {
                     id: heartContainer
                     width: Theme.barIconSize(root.barThickness, -2)
                     height: width
+                    visible: !!(service && service.showLoveButton)
                     anchors.verticalCenter: parent.verticalCenter
 
                     DankIcon {
@@ -618,19 +707,19 @@ PluginComponent {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                         onClicked: function(mouse) {
                             if (mouse.button === Qt.LeftButton) {
                                 root.toggleLove();
-                            } else if (mouse.button === Qt.RightButton) {
-                                if (root.service) root.service.checkTrackInfo(); // Force refresh
+                            } else {
+                                root.dispatchPillClick(mouse.button);
                             }
                         }
                     }
                 }
 
                 StyledText {
-                    visible: root.isLoved
+                    visible: root.isLoved && !!(service && service.showLoveButton)
                     text: root.isLoved ? "Loved" : ""
                     color: "#ff4b72"
                     font.pixelSize: Theme.fontSizeSmall - 1
@@ -647,29 +736,36 @@ PluginComponent {
             implicitWidth: root.hasActiveMedia ? root.barThickness : 0
             implicitHeight: root.hasActiveMedia ? pillCol.implicitHeight : 0
 
-            ToolTip.visible: root.hasActiveMedia && (pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse)
-            ToolTip.delay: 600
-            ToolTip.text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+            // Custom tooltip with NoWrap so the text stays on one readable line
+            // (the default attached ToolTip wraps to a tall, illegible column on the narrow vertical bar).
+            ToolTip {
+                id: pillTooltipV
+                visible: root.hasActiveMedia && (pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse)
+                delay: 600
+                text: root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)")
+                contentItem: StyledText {
+                    text: pillTooltipV.text
+                    wrapMode: Text.NoWrap
+                    color: Theme.surfaceText
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+                background: Rectangle {
+                    color: Theme.surfaceContainer
+                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.3)
+                    border.width: 1
+                    radius: Theme.cornerRadius
+                }
+            }
 
-            // Failsafe MouseArea when controls are hidden so the whole pill is easy to click to Love.
-            // Placed outside Column so it doesn't break Column layout positioning.
+            // Pill-wide MouseArea for configurable mouse actions (sits behind the Column).
             MouseArea {
                 id: pillMouseV
                 anchors.fill: parent
-                visible: service ? !service.showPlaybackControls : true
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 onClicked: function(mouse) {
-                    if (mouse.button === Qt.LeftButton) {
-                        if (typeof root.triggerPopout === "function") {
-                            root.triggerPopout();
-                        } else {
-                            root.toggleLove();
-                        }
-                    } else if (mouse.button === Qt.RightButton) {
-                        if (root.service) root.service.checkTrackInfo();
-                    }
+                    root.dispatchPillClick(mouse.button);
                 }
             }
 
@@ -717,12 +813,13 @@ PluginComponent {
                 // 3. Playback controls (visible conditionally, vertical)
                 Column {
                     spacing: Theme.spacingXS
-                    visible: service ? service.showPlaybackControls : false
+                    visible: !!(service && service.showPlaybackControls && (service.showPrevButton || service.showPlayButton || service.showNextButton))
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showPrevButton)
                         anchors.horizontalCenter: parent.horizontalCenter
                         DankIcon {
                             name: "skip_previous"
@@ -742,6 +839,7 @@ PluginComponent {
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showPlayButton)
                         anchors.horizontalCenter: parent.horizontalCenter
                         DankIcon {
                             name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
@@ -761,6 +859,7 @@ PluginComponent {
                     Item {
                         width: Theme.barIconSize(root.barThickness, -2)
                         height: width
+                        visible: !!(service && service.showNextButton)
                         anchors.horizontalCenter: parent.horizontalCenter
                         DankIcon {
                             name: "skip_next"
@@ -782,6 +881,7 @@ PluginComponent {
                         width: Theme.barIconSize(root.barThickness, -4)
                         height: 1
                         color: Theme.surfaceVariant
+                        visible: !!(service && service.showLoveButton)
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                 }
@@ -791,6 +891,7 @@ PluginComponent {
                     id: heartContainerV
                     width: Theme.barIconSize(root.barThickness, -2)
                     height: width
+                    visible: !!(service && service.showLoveButton)
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     DankIcon {
@@ -805,12 +906,12 @@ PluginComponent {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                         onClicked: function(mouse) {
                             if (mouse.button === Qt.LeftButton) {
                                 root.toggleLove();
-                            } else if (mouse.button === Qt.RightButton) {
-                                if (root.service) root.service.checkTrackInfo(); // Force refresh
+                            } else {
+                                root.dispatchPillClick(mouse.button);
                             }
                         }
                     }
