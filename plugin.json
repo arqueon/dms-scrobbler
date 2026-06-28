@@ -1,8 +1,8 @@
 {
 	"id": "lastfmScrobbler",
 	"name": "DMS Last.fm Scrobbler",
-	"description": "Scrobble MPRIS music tracks to Last.fm and love/unlove tracks from the bar and IPC",
-	"version": "1.1.0",
+	"description": "Last.fm companion for the native DMS media player: scrobbling, love/unlove and profile links",
+	"version": "1.3.0",
 	"author": "arqueon",
 	"icon": "favorite",
 	"components": {

@@ -169,6 +169,20 @@ PluginSettings {
         defaultValue: "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
     }
 
+    ToggleSetting {
+        settingKey: "remoteFallbackEnabled"
+        label: "Remote Playback Fallback"
+        description: "Show protocol-independent Now Playing data from Last.fm when no usable MPRIS player is active. External tracks are never scrobbled twice."
+        defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "publishRemoteMpris"
+        label: "Publish Remote Track to MPRIS"
+        description: "Expose Last.fm Now Playing as an informational MPRIS source so the native DMS media player can display it. Requires the optional mpris-bridge helper."
+        defaultValue: true
+    }
+
     SelectionSetting {
         settingKey: "scrobbleThreshold"
         label: "Scrobble Threshold"
@@ -179,34 +193,6 @@ PluginSettings {
             { label: "100%", value: "100" }
         ]
         defaultValue: "50"
-    }
-
-    ToggleSetting {
-        settingKey: "showPlaybackControls"
-        label: "Show Playback Controls"
-        description: "Master switch for the play/pause and skip buttons on the bar (functions as a media controller replacement). Pick which ones below."
-        defaultValue: false
-    }
-
-    ToggleSetting {
-        settingKey: "showPrevButton"
-        label: "    • Previous Button"
-        description: "Show the skip-previous button (requires Show Playback Controls)"
-        defaultValue: true
-    }
-
-    ToggleSetting {
-        settingKey: "showPlayButton"
-        label: "    • Play/Pause Button"
-        description: "Show the play/pause button (requires Show Playback Controls)"
-        defaultValue: true
-    }
-
-    ToggleSetting {
-        settingKey: "showNextButton"
-        label: "    • Next Button"
-        description: "Show the skip-next button (requires Show Playback Controls)"
-        defaultValue: true
     }
 
     ToggleSetting {
@@ -258,10 +244,7 @@ PluginSettings {
         label: "Left Click"
         options: [
             { label: "Open Popout", value: "popout" },
-            { label: "Play / Pause", value: "playpause" },
             { label: "Toggle Love", value: "love" },
-            { label: "Next Track", value: "next" },
-            { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
             { label: "Open Artist on Last.fm", value: "lastfm_artist" },
             { label: "Open Track on Last.fm", value: "lastfm_track" },
@@ -275,10 +258,7 @@ PluginSettings {
         label: "Middle Click / Three-Finger Tap"
         options: [
             { label: "Toggle Love", value: "love" },
-            { label: "Play / Pause", value: "playpause" },
             { label: "Open Popout", value: "popout" },
-            { label: "Next Track", value: "next" },
-            { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
             { label: "Open Artist on Last.fm", value: "lastfm_artist" },
             { label: "Open Track on Last.fm", value: "lastfm_track" },
@@ -291,17 +271,14 @@ PluginSettings {
         settingKey: "pillRightAction"
         label: "Right Click"
         options: [
-            { label: "Play / Pause", value: "playpause" },
+            { label: "Open Track on Last.fm", value: "lastfm_track" },
             { label: "Toggle Love", value: "love" },
             { label: "Open Popout", value: "popout" },
-            { label: "Next Track", value: "next" },
-            { label: "Previous Track", value: "previous" },
             { label: "Refresh Info", value: "refresh" },
             { label: "Open Artist on Last.fm", value: "lastfm_artist" },
-            { label: "Open Track on Last.fm", value: "lastfm_track" },
             { label: "Nothing", value: "none" }
         ]
-        defaultValue: "playpause"
+        defaultValue: "lastfm_track"
     }
 
     // 4. Advanced

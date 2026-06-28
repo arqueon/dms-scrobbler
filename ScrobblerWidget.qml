@@ -11,12 +11,10 @@ PluginComponent {
     id: root
 
     popoutWidth: 280
-    property bool showPlayerList: false
-
     readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
 
     readonly property bool isLoved: service ? service.isLoved : false
-    readonly property bool hasActiveMedia: !!(service && service.activePlayer && service.trackTitle && service.isPlayerWhitelisted(service.playerIdentity))
+    readonly property bool hasActiveMedia: !!(service && service.hasTrack && service.trackTitle)
     readonly property string trackDisplay: service ? service.trackArtist + " - " + service.trackTitle : ""
 
     // Vertical-bar tooltip Y offset, mirroring DMS's native bar widgets:
@@ -49,17 +47,8 @@ PluginComponent {
         case "popout":
             if (typeof root.triggerPopout === "function") root.triggerPopout();
             break;
-        case "playpause":
-            if (service.activePlayer) service.activePlayer.togglePlaying();
-            break;
         case "love":
             root.toggleLove();
-            break;
-        case "next":
-            if (service.activePlayer) service.activePlayer.next();
-            break;
-        case "previous":
-            if (service.activePlayer) service.activePlayer.previous();
             break;
         case "refresh":
             service.checkTrackInfo();
@@ -192,7 +181,7 @@ PluginComponent {
                 Column {
                     width: parent.width
                     spacing: Theme.spacingXS
-                    visible: !!(service && service.activePlayer && service.trackTitle && service.scrobbleTargetSeconds > 0)
+                    visible: !!(service && service.canScrobbleCurrent && service.trackTitle && service.scrobbleTargetSeconds > 0)
 
                     Rectangle {
                         width: parent.width
@@ -225,7 +214,7 @@ PluginComponent {
                     }
                 }
 
-                // 3. Playback & Love Controls Row
+                // 3. Last.fm actions. Playback remains in DMS's native player.
                 Row {
                     spacing: Theme.spacingM
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -253,16 +242,16 @@ PluginComponent {
                         }
                     }
 
-                    // Previous Track
+                    // Open artist on Last.fm
                     StyledRect {
                         width: 38
                         height: 38
                         radius: 19
                         color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.activePlayer)
+                        visible: !!(service && service.hasTrack)
 
                         DankIcon {
-                            name: "skip_previous"
+                            name: "person"
                             size: 20
                             color: Theme.widgetIconColor
                             anchors.centerIn: parent
@@ -273,20 +262,20 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
+                            onClicked: root.doAction("lastfm_artist")
                         }
                     }
 
-                    // Play / Pause (middle)
+                    // Open track on Last.fm
                     StyledRect {
                         width: 44
                         height: 44
                         radius: 22
                         color: playMouseP.containsPress ? Theme.surfaceVariant : (playMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.activePlayer)
+                        visible: !!(service && service.hasTrack)
 
                         DankIcon {
-                            name: service && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
+                            name: "open_in_new"
                             size: 24
                             color: Theme.primary
                             anchors.centerIn: parent
@@ -297,20 +286,20 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
+                            onClicked: root.doAction("lastfm_track")
                         }
                     }
 
-                    // Next Track
+                    // Refresh Last.fm information
                     StyledRect {
                         width: 38
                         height: 38
                         radius: 19
                         color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.activePlayer)
+                        visible: !!(service && service.hasTrack)
 
                         DankIcon {
-                            name: "skip_next"
+                            name: "refresh"
                             size: 20
                             color: Theme.widgetIconColor
                             anchors.centerIn: parent
@@ -321,157 +310,12 @@ PluginComponent {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
+                            onClicked: root.doAction("refresh")
                         }
                     }
                 }
 
-                // 4. Source Selector Dropdown Button
-                Rectangle {
-                    width: parent.width
-                    height: 36
-                    radius: Theme.cornerRadius
-                    color: sourceMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer
-                    border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.2)
-                    border.width: 1
-
-                    DankIcon {
-                        id: sourceLeftIcon
-                        name: "assistant_device"
-                        size: 18
-                        color: Theme.primary
-                        anchors.left: parent.left
-                        anchors.leftMargin: Theme.spacingM
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    StyledText {
-                        text: service && service.manualPlayerIdentity !== ""
-                                ? "Source: " + service.manualPlayerIdentity
-                                : "Source: Auto (Smart)"
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceText
-                        elide: Text.ElideRight
-                        anchors.left: sourceLeftIcon.right
-                        anchors.leftMargin: Theme.spacingS
-                        anchors.right: sourceRightIcon.left
-                        anchors.rightMargin: Theme.spacingS
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    DankIcon {
-                        id: sourceRightIcon
-                        name: root.showPlayerList ? "keyboard_arrow_up" : "keyboard_arrow_down"
-                        size: 18
-                        color: Theme.surfaceVariantText
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.spacingM
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    MouseArea {
-                        id: sourceMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.showPlayerList = !root.showPlayerList
-                    }
-                }
-
-                // 5. Expandable Player List
-                Column {
-                    width: parent.width
-                    spacing: 4
-                    visible: root.showPlayerList
-
-                    Rectangle {
-                        width: parent.width
-                        height: 32
-                        radius: 4
-                        color: (service && service.manualPlayerIdentity === "") 
-                                ? (Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12) : "transparent") 
-                                : (autoMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        border.color: (service && service.manualPlayerIdentity === "") ? (Theme.primary || "transparent") : "transparent"
-                        border.width: 1
-
-                        StyledText {
-                            text: "Auto (Smart Selection)"
-                            anchors.centerIn: parent
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: (service && service.manualPlayerIdentity === "") ? (Theme.primary || Theme.surfaceText) : Theme.surfaceText
-                            font.weight: (service && service.manualPlayerIdentity === "") ? Font.Bold : Font.Normal
-                        }
-
-                        MouseArea {
-                            id: autoMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (service) service.manualPlayerIdentity = "";
-                                root.showPlayerList = false;
-                            }
-                        }
-                    }
-
-                    Repeater {
-                        model: MprisController.availablePlayers
-
-                        Rectangle {
-                            required property var modelData
-                            width: parent.width
-                            height: 32
-                            radius: 4
-                            
-                            readonly property bool isActive: service && service.activePlayer === modelData
-                            readonly property bool isSelectedManually: service && service.manualPlayerIdentity === modelData.identity
-                            
-                            color: isSelectedManually 
-                                    ? (Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12) : "transparent") 
-                                    : (isActive ? Theme.surfaceContainerHigh : (playerItemMouse.containsMouse ? Theme.surfaceContainer : Theme.surfaceContainerLow))
-                            border.color: isSelectedManually ? (Theme.primary || "transparent") : (isActive && Theme.primary ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4) : "transparent")
-                            border.width: 1
-
-                            DankIcon {
-                                id: playerIcon
-                                name: "music_note"
-                                size: 14
-                                color: isActive ? Theme.primary : Theme.surfaceText
-                                anchors.left: parent.left
-                                anchors.leftMargin: Theme.spacingM
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-
-                            StyledText {
-                                text: modelData.identity || "Player"
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: isActive ? Theme.primary : Theme.surfaceText
-                                font.weight: isActive ? Font.Bold : Font.Normal
-                                elide: Text.ElideRight
-                                anchors.left: playerIcon.right
-                                anchors.leftMargin: Theme.spacingS
-                                anchors.right: parent.right
-                                anchors.rightMargin: Theme.spacingM
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-
-                            MouseArea {
-                                id: playerItemMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (service) {
-                                        service.manualPlayerIdentity = modelData.identity;
-                                    }
-                                    root.showPlayerList = false;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 6. Source & Username footer
+                // 4. Source & Username footer
                 StyledText {
                     width: parent.width
                     text: {
@@ -479,8 +323,9 @@ PluginComponent {
                         if (service && service.username) {
                             str += "Scrobbling as: <b>" + service.username + "</b><br/>";
                         }
-                        if (service && service.activePlayer) {
-                            str += "Source: " + service.playerIdentity;
+                        if (service && service.hasTrack) {
+                            str += "Source: " + service.sourceLabel;
+                            if (service.isRemoteSource) str += "<br/>Scrobble managed by external source";
                         }
                         if (service && service.pendingScrobbles > 0) {
                             str += "<br/>⏳ " + service.pendingScrobbles + " scrobble(s) pending (offline)";
@@ -505,7 +350,7 @@ PluginComponent {
 
             // Use DMS's native DankTooltip (a separate layer-shell window) like the
             // built-in bar widgets, so the tooltip is never clipped by the bar window.
-            property bool anyHover: pillMouse.containsMouse || prevMouse.containsMouse || playMouse.containsMouse || nextMouse.containsMouse || heartMouse.containsMouse
+            property bool anyHover: pillMouse.containsMouse || heartMouse.containsMouse
             onAnyHoverChanged: {
                 if (anyHover && root.hasActiveMedia) {
                     hTipLoader.active = true;
@@ -655,83 +500,7 @@ PluginComponent {
                     }
                 }
 
-                // 4. Playback controls (visible conditionally)
-                Row {
-                    spacing: Theme.spacingXS
-                    visible: !!(service && service.showPlaybackControls && (service.showPrevButton || service.showPlayButton || service.showNextButton))
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showPrevButton)
-                        anchors.verticalCenter: parent.verticalCenter
-                        DankIcon {
-                            name: "skip_previous"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: prevMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
-                        }
-                    }
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showPlayButton)
-                        anchors.verticalCenter: parent.verticalCenter
-                        DankIcon {
-                            name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: playMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
-                        }
-                    }
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showNextButton)
-                        anchors.verticalCenter: parent.verticalCenter
-                        DankIcon {
-                            name: "skip_next"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: nextMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
-                        }
-                    }
-
-                    // A subtle separator
-                    StyledRect {
-                        width: 1
-                        height: Theme.barIconSize(root.barThickness, -4)
-                        color: Theme.surfaceVariant
-                        visible: !!(service && service.showLoveButton)
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-
-                // 5. Heart Control
+                // 4. Heart Control
                 Item {
                     id: heartContainer
                     width: Theme.barIconSize(root.barThickness, -2)
@@ -784,7 +553,7 @@ PluginComponent {
             // The bar window is too narrow on a vertical panel for an in-window tooltip
             // (it gets clipped/wrapped). DankTooltip is a separate layer-shell window
             // positioned by global screen coordinates, so it renders fully and readable.
-            property bool anyHover: pillMouseV.containsMouse || prevMouseV.containsMouse || playMouseV.containsMouse || nextMouseV.containsMouse || heartMouseV.containsMouse
+            property bool anyHover: pillMouseV.containsMouse || heartMouseV.containsMouse
             onAnyHoverChanged: {
                 if (anyHover && root.hasActiveMedia) {
                     vTipLoader.active = true;
@@ -873,83 +642,7 @@ PluginComponent {
                     visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
                 }
 
-                // 3. Playback controls (visible conditionally, vertical)
-                Column {
-                    spacing: Theme.spacingXS
-                    visible: !!(service && service.showPlaybackControls && (service.showPrevButton || service.showPlayButton || service.showNextButton))
-                    anchors.horizontalCenter: parent.horizontalCenter
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showPrevButton)
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        DankIcon {
-                            name: "skip_previous"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: prevMouseV
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.previous()
-                        }
-                    }
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showPlayButton)
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        DankIcon {
-                            name: service && service.activePlayer && service.playbackState === MprisPlaybackState.Playing ? "pause" : "play_arrow"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: playMouseV
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.togglePlaying()
-                        }
-                    }
-
-                    Item {
-                        width: Theme.barIconSize(root.barThickness, -2)
-                        height: width
-                        visible: !!(service && service.showNextButton)
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        DankIcon {
-                            name: "skip_next"
-                            size: parent.width
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-                        MouseArea {
-                            id: nextMouseV
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: if (service && service.activePlayer) service.activePlayer.next()
-                        }
-                    }
-
-                    // A subtle separator
-                    StyledRect {
-                        width: Theme.barIconSize(root.barThickness, -4)
-                        height: 1
-                        color: Theme.surfaceVariant
-                        visible: !!(service && service.showLoveButton)
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-                }
-
-                // 4. Heart Control (vertical)
+                // Heart Control (vertical)
                 Item {
                     id: heartContainerV
                     width: Theme.barIconSize(root.barThickness, -2)

@@ -18,23 +18,27 @@ PluginComponent {
     readonly property string username: pluginData.username || ""
     readonly property string playerWhitelist: pluginData.playerWhitelist || "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
     readonly property int scrobbleThreshold: pluginData.scrobbleThreshold !== undefined ? pluginData.scrobbleThreshold : 50
-    readonly property bool showPlaybackControls: pluginData.showPlaybackControls === true
     readonly property bool showMusicAnimation: pluginData.showMusicAnimation !== false
     readonly property bool showAlbumArt: pluginData.showAlbumArt !== false
     readonly property bool showTrackInfo: pluginData.showTrackInfo !== false
     readonly property bool debugLogging: pluginData.debugLogging === true
+    readonly property bool remoteFallbackEnabled: pluginData.remoteFallbackEnabled !== false
+    readonly property bool publishRemoteMpris: pluginData.publishRemoteMpris !== false
 
-    // Per-button visibility on the bar (transport buttons require showPlaybackControls).
-    readonly property bool showPrevButton: pluginData.showPrevButton !== false
-    readonly property bool showPlayButton: pluginData.showPlayButton !== false
-    readonly property bool showNextButton: pluginData.showNextButton !== false
     readonly property bool showLoveButton: pluginData.showLoveButton !== false
 
-    // Configurable mouse actions on the bar pill.
-    // Values: "popout", "playpause", "love", "next", "previous", "refresh", "none".
-    readonly property string pillLeftAction: pluginData.pillLeftAction || "popout"
-    readonly property string pillMiddleAction: pluginData.pillMiddleAction || "love"
-    readonly property string pillRightAction: pluginData.pillRightAction || "playpause"
+    function companionAction(value, fallback) {
+        // Migrate settings from pre-1.3 releases, when the plugin duplicated
+        // transport controls that now belong exclusively to DMS.
+        if (value === "playpause" || value === "next" || value === "previous")
+            return fallback;
+        return value || fallback;
+    }
+
+    // Companion-only mouse actions on the bar pill.
+    readonly property string pillLeftAction: companionAction(pluginData.pillLeftAction, "popout")
+    readonly property string pillMiddleAction: companionAction(pluginData.pillMiddleAction, "love")
+    readonly property string pillRightAction: companionAction(pluginData.pillRightAction, "lastfm_track")
 
     // Gated logger: only emits when the user enables Debug Logging in settings.
     // Never pass secrets (API key/secret/session key) to this.
@@ -85,70 +89,74 @@ PluginComponent {
         return false;
     }
 
-    property string manualPlayerIdentity: ""
-
-    // Smart player selection: find the best player among all available players
-    readonly property MprisPlayer activePlayer: {
-        var players = MprisController.availablePlayers;
-        if (manualPlayerIdentity !== "") {
-            for (var i = 0; i < players.length; i++) {
-                var p = players[i];
-                if (p && p.identity === manualPlayerIdentity) {
-                    return p;
-                }
-            }
-        }
-        var defaultActive = MprisController.activePlayer;
-        
-        var best = null;
-        for (var i = 0; i < players.length; i++) {
-            var p = players[i];
-            if (!p) continue;
-            if (!isPlayerWhitelisted(p)) continue;
-            
-            var hasArtist = p.trackArtist && p.trackArtist.trim() !== "";
-            var isPlaying = p.playbackState === MprisPlaybackState.Playing;
-            
-            // If currently playing and has rich metadata, it's the perfect target!
-            if (isPlaying && hasArtist) {
-                return p;
-            }
-            
-            if (!best) {
-                best = p;
-            } else {
-                var bestIsPlaying = best.playbackState === MprisPlaybackState.Playing;
-                var pIsPlaying = p.playbackState === MprisPlaybackState.Playing;
-                if (!bestIsPlaying && pIsPlaying) {
-                    best = p;
-                } else if (bestIsPlaying === pIsPlaying) {
-                    var bestHasArtist = best.trackArtist && best.trackArtist.trim() !== "";
-                    var pHasArtist = p.trackArtist && p.trackArtist.trim() !== "";
-                    if (!bestHasArtist && pHasArtist) {
-                        best = p;
-                    }
-                }
-            }
-        }
-        return best || defaultActive;
+    function isRemoteBridgePlayer(player) {
+        return !!(player && (player.identity || "") === "DMS Last.fm Remote");
     }
 
-    readonly property string playerIdentity: activePlayer ? (activePlayer.identity || "") : ""
-    readonly property int trackLength: activePlayer ? (activePlayer.length || 0) : 0
-    readonly property var playbackState: activePlayer ? activePlayer.playbackState : null
+    readonly property MprisPlayer canonicalPlayer: MprisController.activePlayer
+    readonly property MprisPlayer realPlayingPlayer: {
+        var players = MprisController.availablePlayers;
+        for (var i = 0; i < players.length; i++) {
+            var player = players[i];
+            if (player && !isRemoteBridgePlayer(player) && player.isPlaying && isPlayerWhitelisted(player))
+                return player;
+        }
+        return null;
+    }
+    readonly property MprisPlayer bridgePlayer: {
+        var players = MprisController.availablePlayers;
+        for (var i = 0; i < players.length; i++) {
+            if (isRemoteBridgePlayer(players[i])) return players[i];
+        }
+        return null;
+    }
+    // Follow the source selected in DMS. The bridge itself is represented by
+    // the Last.fm fallback properties below, not consumed again as local MPRIS.
+    readonly property MprisPlayer activePlayer: canonicalPlayer
+        && !isRemoteBridgePlayer(canonicalPlayer) ? canonicalPlayer : null
+
+    property bool updatingRemote: false
+    property bool remoteNowPlaying: false
+    property string remoteArtist: ""
+    property string remoteTitle: ""
+    property string remoteAlbum: ""
+    property string remoteArtUrl: ""
+    property string remoteTrackUrl: ""
+    property bool remoteLoved: false
+    property bool remotePollRunning: false
+    property string mprisBridgePath: ""
+    property bool mprisBridgeAvailable: false
+    readonly property bool shouldPublishRemoteMpris: publishRemoteMpris
+        && remoteFallbackEnabled && remoteNowPlaying
+
+    readonly property bool hasLocalMetadata: !!(activePlayer
+        && isPlayerWhitelisted(activePlayer)
+        && cleanTitleSuffix(activePlayer.trackTitle || ""))
+    readonly property bool hasUsableLocalTrack: hasLocalMetadata
+        && activePlayer.playbackState !== MprisPlaybackState.Stopped
+        && (activePlayer.playbackState === MprisPlaybackState.Playing || !remoteNowPlaying)
+    readonly property bool isRemoteSource: !hasUsableLocalTrack && remoteNowPlaying
+    readonly property bool hasTrack: hasUsableLocalTrack || isRemoteSource
+    readonly property bool canScrobbleCurrent: hasUsableLocalTrack
+    readonly property string sourceLabel: isRemoteSource ? "Last.fm Now Playing (remote)" : (activePlayer ? (activePlayer.identity || "MPRIS") : "None")
+    readonly property string playerIdentity: isRemoteSource ? "lastfm-remote" : (activePlayer ? (activePlayer.identity || "") : "")
+    readonly property int trackLength: hasUsableLocalTrack ? (activePlayer.length || 0) : 0
+    readonly property var playbackState: hasUsableLocalTrack ? activePlayer.playbackState : null
 
     // Cleaned/parsed track details for robust scrobbling.
     // Native MPRIS metadata (Spotify, mpd, ...) is trusted as-is; only web sources
     // (browsers exposing "Artist - Title" in the window title) are parsed/cleaned.
     readonly property string trackArtist: {
-        if (!activePlayer) return "";
+        if (isRemoteSource) return remoteArtist;
+        if (!hasUsableLocalTrack) return "";
         var artist = activePlayer.trackArtist || "";
         if (artist.trim() !== "") return artist.trim();
         return splitWebTitle(activePlayer.trackTitle || "").artist;
     }
 
     readonly property string trackTitle: {
-        if (!activePlayer) return "";
+        if (isRemoteSource) return remoteTitle;
+        if (!hasUsableLocalTrack) return "";
         var rawTitle = activePlayer.trackTitle || "";
         var artist = activePlayer.trackArtist || "";
         if (artist.trim() !== "") return cleanTitleSuffix(rawTitle);
@@ -159,14 +167,16 @@ PluginComponent {
     property string lastfmAlbum: ""
 
     readonly property string trackArtUrl: {
-        if (activePlayer && activePlayer.trackArtUrl && activePlayer.trackArtUrl.trim() !== "") {
+        if (isRemoteSource && remoteArtUrl) return remoteArtUrl;
+        if (hasUsableLocalTrack && activePlayer.trackArtUrl && activePlayer.trackArtUrl.trim() !== "") {
             return activePlayer.trackArtUrl;
         }
         return lastfmArtUrl;
     }
 
     readonly property string trackAlbum: {
-        if (activePlayer && activePlayer.trackAlbum && activePlayer.trackAlbum.trim() !== "") {
+        if (isRemoteSource && remoteAlbum) return remoteAlbum;
+        if (hasUsableLocalTrack && activePlayer.trackAlbum && activePlayer.trackAlbum.trim() !== "") {
             return cleanTitleSuffix(activePlayer.trackAlbum);
         }
         return lastfmAlbum;
@@ -214,15 +224,21 @@ PluginComponent {
     property string scrobblerPath: ""
     property string tempToken: ""
 
-    onTrackTitleChanged: handleTrackChange()
-    onTrackArtistChanged: handleTrackChange()
+    onTrackTitleChanged: if (!updatingRemote) handleTrackChange()
+    onTrackArtistChanged: if (!updatingRemote) handleTrackChange()
     onActivePlayerChanged: handleTrackChange()
     onApiKeyChanged: handleTrackChange()
     onUsernameChanged: handleTrackChange()
+    onShouldPublishRemoteMprisChanged: syncRemoteMprisBridge()
+    onRealPlayingPlayerChanged: selectAutomaticMprisSource()
+    onBridgePlayerChanged: selectAutomaticMprisSource()
 
     Component.onCompleted: {
         var url = Qt.resolvedUrl("scrobbler.py").toString();
         root.scrobblerPath = url.indexOf("file://") === 0 ? url.substring(7) : url;
+        var bridgeUrl = Qt.resolvedUrl("mpris-bridge").toString();
+        root.mprisBridgePath = bridgeUrl.indexOf("file://") === 0 ? bridgeUrl.substring(7) : bridgeUrl;
+        bridgeCheckProcess.running = true;
         handleTrackChange();
         // Drain anything that was queued while DMS was closed / offline.
         refreshQueueCount();
@@ -238,6 +254,96 @@ PluginComponent {
         onTriggered: flushQueue()
     }
 
+    // Protocol-independent fallback for Chromecast, AirPlay, DLNA, Spotify
+    // Connect and other remote sessions. It only mirrors an existing Last.fm
+    // Now Playing report; it never scrobbles that report again.
+    Timer {
+        interval: 15000
+        repeat: true
+        running: !!(root.remoteFallbackEnabled && root.apiKey && root.username)
+        triggeredOnStart: true
+        onTriggered: root.pollRemoteNowPlaying()
+    }
+
+    function pollRemoteNowPlaying() {
+        if (remotePollRunning || !remoteFallbackEnabled || !apiKey || !username || !scrobblerPath) return;
+        remotePollRunning = true;
+        runScrobbler(["recent-now-playing", apiKey, username], function(code, output) {
+            remotePollRunning = false;
+            try {
+                var json = JSON.parse(output);
+                if (json.error !== undefined) return;
+                var oldKey = remoteArtist + "\n" + remoteTitle;
+                updatingRemote = true;
+                remoteNowPlaying = json.now_playing === true;
+                remoteArtist = remoteNowPlaying ? (json.artist || "") : "";
+                remoteTitle = remoteNowPlaying ? (json.track || "") : "";
+                remoteAlbum = remoteNowPlaying ? (json.album || "") : "";
+                remoteArtUrl = remoteNowPlaying ? (json.album_art || "") : "";
+                remoteTrackUrl = remoteNowPlaying ? (json.url || "") : "";
+                remoteLoved = remoteNowPlaying && json.loved === true;
+                updatingRemote = false;
+                syncRemoteMprisBridge();
+                var newKey = remoteArtist + "\n" + remoteTitle;
+                if (isRemoteSource && oldKey !== newKey) handleTrackChange();
+                else if (isRemoteSource) {
+                    isLoved = remoteLoved;
+                    if (remoteArtUrl) lastfmArtUrl = remoteArtUrl;
+                    if (remoteAlbum) lastfmAlbum = remoteAlbum;
+                }
+                else if (!hasTrack) handleTrackChange();
+            } catch (e) {
+                updatingRemote = false;
+                dlog("failed to parse recent Now Playing:", e);
+            }
+        });
+    }
+
+    function syncRemoteMprisBridge() {
+        if (!mprisBridgeAvailable || !mprisBridgeProcess.running) return;
+        if (!shouldPublishRemoteMpris || !remoteArtist || !remoteTitle) {
+            mprisBridgeProcess.write(JSON.stringify({ "command": "clear" }) + "\n");
+            return;
+        }
+        mprisBridgeProcess.write(JSON.stringify({
+            "command": "set",
+            "artist": remoteArtist,
+            "title": remoteTitle,
+            "album": remoteAlbum,
+            "artUrl": remoteArtUrl,
+            "trackUrl": remoteTrackUrl
+        }) + "\n");
+    }
+
+    function selectAutomaticMprisSource() {
+        // A transition to a real playing source wins automatically. Manual
+        // selection of the bridge is then respected until playback state changes.
+        if (realPlayingPlayer) {
+            MprisController.setActivePlayer(realPlayingPlayer);
+        } else if (bridgePlayer && remoteNowPlaying) {
+            MprisController.setActivePlayer(bridgePlayer);
+        }
+    }
+
+    Process {
+        id: bridgeCheckProcess
+        command: ["test", "-x", root.mprisBridgePath]
+        running: false
+        onExited: function(exitCode) {
+            root.mprisBridgeAvailable = exitCode === 0;
+            if (root.mprisBridgeAvailable) mprisBridgeProcess.running = true;
+        }
+    }
+
+    Process {
+        id: mprisBridgeProcess
+        command: [root.mprisBridgePath]
+        stdinEnabled: true
+        running: false
+        onStarted: root.syncRemoteMprisBridge()
+        onExited: root.mprisBridgeAvailable = false
+    }
+
 
 
     function handleTrackChange() {
@@ -251,13 +357,16 @@ PluginComponent {
         lastPosition = 0;
         trackStartTime = Math.floor(Date.now() / 1000);
 
-        if (!activePlayer || !trackTitle || !trackArtist) {
-            dlog("handleTrackChange early return: activePlayer, trackTitle, or trackArtist is falsy");
+        if (!hasTrack || !trackTitle || !trackArtist) {
+            dlog("handleTrackChange early return: no usable track metadata");
             return;
         }
 
-        if (!isPlayerWhitelisted(activePlayer)) {
-            dlog("handleTrackChange early return: player is not whitelisted");
+        if (isRemoteSource) {
+            isLoved = remoteLoved;
+            lastfmArtUrl = remoteArtUrl;
+            lastfmAlbum = remoteAlbum;
+            dlog("using external Last.fm Now Playing fallback; scrobbling disabled to prevent duplicates");
             return;
         }
 
@@ -579,32 +688,31 @@ PluginComponent {
         target: "lastfmScrobbler"
 
         function love(): string {
-            if (!activePlayer || !trackTitle) return "No track playing";
+            if (!hasTrack || !trackTitle) return "No track playing";
             root.loveCurrentTrack();
             return "Loving track: " + root.trackArtist + " - " + root.trackTitle;
         }
 
         function unlove(): string {
-            if (!activePlayer || !trackTitle) return "No track playing";
+            if (!hasTrack || !trackTitle) return "No track playing";
             root.unloveCurrentTrack();
             return "Unloving track: " + root.trackArtist + " - " + root.trackTitle;
         }
 
         function toggleLove(): string {
-            if (!activePlayer || !trackTitle) return "No track playing";
+            if (!hasTrack || !trackTitle) return "No track playing";
             var oldState = root.isLoved;
             root.toggleLoveCurrentTrack();
             return "Toggled love: " + (oldState ? "Unloving" : "Loving") + " " + root.trackArtist + " - " + root.trackTitle;
         }
 
         function status(): string {
-            if (!activePlayer) return "No player active";
-            if (!trackTitle) return "No track playing";
-            return "Playing: " + root.trackArtist + " - " + root.trackTitle + 
-                   " [" + playerIdentity + "]" +
+            if (!hasTrack || !trackTitle) return "No track playing";
+            return "Playing: " + root.trackArtist + " - " + root.trackTitle +
+                   " [" + sourceLabel + "]" +
                    " (Loved: " + root.isLoved + 
                    ", Scrobbled: " + root.scrobbledThisTrack + 
-                   ", Whitelisted: " + isPlayerWhitelisted(activePlayer) + ")";
+                   ", Scrobble source: " + (canScrobbleCurrent ? "this plugin" : "external") + ")";
         }
 
         function getArtUrls(): string {

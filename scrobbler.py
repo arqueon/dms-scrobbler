@@ -232,6 +232,44 @@ def main():
     elif cmd == "queue-count":
         print_json({"count": len(load_queue())})
 
+    elif cmd == "recent-now-playing":
+        if len(sys.argv) < 4:
+            print_json({"error": -1, "message": "Usage: recent-now-playing <api_key> <username>"})
+            sys.exit(1)
+        api_key = sys.argv[2]
+        username = sys.argv[3]
+        res = call_api("user.getRecentTracks", {
+            "api_key": api_key,
+            "user": username,
+            "limit": "1",
+            "extended": "1",
+        })
+        tracks = res.get("recenttracks", {}).get("track", [])
+        if isinstance(tracks, dict):
+            tracks = [tracks]
+        if not tracks or tracks[0].get("@attr", {}).get("nowplaying") != "true":
+            print_json({"now_playing": False})
+        else:
+            track = tracks[0]
+            artist_data = track.get("artist", {})
+            artist = artist_data.get("name", "") if isinstance(artist_data, dict) else artist_data
+            album_data = track.get("album", {})
+            album = album_data.get("#text", "") if isinstance(album_data, dict) else album_data
+            art_url = ""
+            for image in track.get("image", []):
+                candidate = image.get("#text", "")
+                if candidate:
+                    art_url = candidate
+            print_json({
+                "now_playing": True,
+                "artist": artist,
+                "track": track.get("name", ""),
+                "album": album,
+                "album_art": art_url,
+                "loved": str(track.get("loved", "0")) == "1",
+                "url": track.get("url", ""),
+            })
+
     elif cmd == "love":
         if len(sys.argv) < 7:
             print_json({"error": -1, "message": "Usage: love <api_key> <secret> <session_key> <artist> <title>"})
