@@ -23,6 +23,7 @@ typedef struct {
     char *album;
     char *art_url;
     char *track_url;
+    char *playback_status;
 } Bridge;
 
 static void replace_string(char **target, const char *value) {
@@ -43,7 +44,7 @@ static int get_string(sd_bus *bus, const char *path, const char *interface,
     else if (strcmp(property, "DesktopEntry") == 0)
         value = "";
     else if (strcmp(property, "PlaybackStatus") == 0)
-        value = "Playing";
+        value = ((Bridge *)userdata)->playback_status;
     else if (strcmp(property, "LoopStatus") == 0)
         value = "None";
     return sd_bus_message_append(reply, "s", value);
@@ -246,6 +247,9 @@ static void handle_line(Bridge *bridge, const char *line) {
         replace_string(&bridge->album, json_string(object, "album"));
         replace_string(&bridge->art_url, json_string(object, "artUrl"));
         replace_string(&bridge->track_url, json_string(object, "trackUrl"));
+        replace_string(&bridge->playback_status, json_string(object, "playbackStatus"));
+        if (!bridge->playback_status[0])
+            replace_string(&bridge->playback_status, "Playing");
         if (bridge->title[0] && bridge->artist[0] && acquire_name(bridge) >= 0) {
             sd_bus_emit_properties_changed(bridge->bus, OBJECT_PATH, PLAYER_IFACE,
                                            "PlaybackStatus", "Metadata", NULL);
@@ -261,6 +265,7 @@ int main(void) {
     bridge.album = strdup("");
     bridge.art_url = strdup("");
     bridge.track_url = strdup("");
+    bridge.playback_status = strdup("Playing");
 
     int r = sd_bus_open_user(&bridge.bus);
     if (r < 0) {
@@ -316,5 +321,6 @@ finish:
     free(bridge.album);
     free(bridge.art_url);
     free(bridge.track_url);
+    free(bridge.playback_status);
     return r < 0 ? 1 : 0;
 }

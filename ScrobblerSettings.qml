@@ -9,7 +9,9 @@ PluginSettings {
     id: root
     pluginId: "lastfmScrobbler"
 
-    readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
+    readonly property var service: (pluginService && pluginId)
+        ? (pluginService.pluginDaemonInstances[pluginId] || pluginService.pluginInstances[pluginId])
+        : null
 
     StyledText {
         width: parent.width
@@ -178,8 +180,8 @@ PluginSettings {
 
     ToggleSetting {
         settingKey: "publishRemoteMpris"
-        label: "Publish Remote Track to MPRIS"
-        description: "Expose Last.fm Now Playing as an informational MPRIS source so the native DMS media player can display it. Requires the optional mpris-bridge helper."
+        label: "Enable MPRIS Metadata Bridge"
+        description: "Publish enriched artwork for the local DMS track and expose remote Last.fm Now Playing when no local source is active. Requires the optional mpris-bridge helper."
         defaultValue: true
     }
 
