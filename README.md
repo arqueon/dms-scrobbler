@@ -1,6 +1,6 @@
 # DMS Last.fm Companion & Scrobbler
 
-A [Dank Material Shell (DMS)](https://github.com/AvengeMedia/DankMaterialShell) companion for the official media player built into DMS. It follows DMS's canonical MPRIS selection, updates Last.fm "Now Playing", scrobbles tracks, toggles love/unlove, and opens the current artist or track on Last.fm. Remote tracks reported to the authenticated Last.fm account can optionally be republished as a read-only MPRIS player so DMS displays them too.
+A [Dank Material Shell (DMS)](https://github.com/AvengeMedia/DankMaterialShell) companion for the official media player built into DMS. It follows DMS's canonical MPRIS selection, updates Last.fm "Now Playing", scrobbles tracks, toggles love/unlove, and opens the current artist or track on Last.fm. Its optional read-only MPRIS bridge supplies enriched artwork for the same local track and republishes remote tracks reported to the authenticated Last.fm account.
 
 The plugin is deliberately subordinate to DMS's native media controls: playback, previous/next, seeking, volume and player selection remain exclusively in the official DMS media player. This plugin adds only Last.fm state and actions.
 
@@ -16,18 +16,19 @@ The plugin is deliberately subordinate to DMS's native media controls: playback,
 
 - Last.fm Now Playing and scrobbling
 - love/unlove, artist/track links and offline queueing
-- scrobble progress and Last.fm metadata/artwork fallback
-- optional publication of remote Last.fm playback as an informational MPRIS source
+- explicit scrobble delivery states: sending, accepted, queued or failed
+- artwork enrichment from DMS, Last.fm track/album metadata and exact YouTube Music search matches
+- optional publication of enriched local metadata and remote Last.fm playback through a read-only MPRIS source
 
 ## System Dependencies
 The core plugin has **zero external package dependencies** (no `pip install` required) and runs completely out-of-the-box.
 - **Python 3**: Installed on your system (uses only standard libraries: `urllib`, `json`, `hashlib`, `urllib.parse`).
-- **Quickshell / Dank Material Shell**: Version `>= 1.2.0` (provides native MPRIS tracking).
+- **Quickshell / Dank Material Shell**: Version `>= 1.5.0` (provides composite daemon plugins and native MPRIS tracking).
 - **MPRIS-compatible player**: Any media player implementing the MPRIS D-Bus interface (e.g. Spotify, mpd, Cider, Audacious, VLC, etc.).
 
 The optional synthetic MPRIS bridge is a small native helper. Building it requires a C compiler plus the development headers for `libsystemd` and `json-c`.
 
-If `mpris-bridge` is absent, the Last.fm companion and remote fallback continue working; only publication into DMS's native media player is disabled.
+If `mpris-bridge` is absent, scrobbling, Last.fm actions and the in-plugin remote fallback continue working; only metadata enrichment/publication into DMS's native media player is disabled.
 
 ## Installation
 
@@ -75,10 +76,10 @@ You can customize the companion widget directly inside the settings page:
 - **Show Album Art**: Renders a small square cover art thumbnail with rounded corners next to the playing track.
 - **Show Music Playing Animation**: Renders a dynamic, animated sound wave representation that moves reactively when a song is playing.
 - **Show Track Information**: Renders the `"Artist - Title"` text (capped at 140px with a scrolling marquee). *Note: Text is hidden on vertical panels for layout stability but remains available in the hover tooltip.*
-- **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble (default: `spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop`). This avoids scrobbling YouTube videos or browser audio.
+- **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble. The default includes common music players plus Chrome, Chromium and Firefox; browser media is accepted only when DMS can resolve both a title and an artist.
 - **Scrobble Threshold**: Select the percentage of track duration that must elapse before a scrobble is sent to Last.fm (defaults to `50%` or 4 minutes, whichever comes first, on tracks longer than 30 seconds).
 - **Remote Playback Fallback**: Read the authenticated account's Last.fm `Now Playing` when no usable local MPRIS source is active.
-- **Publish Remote Track to MPRIS**: Expose that remote track to DMS through the optional read-only bridge.
+- **Enable MPRIS Metadata Bridge**: Publish the current local track with enriched artwork, or the remote Last.fm track when no local source is active, through the optional read-only bridge.
 - **Debug Logging** (Advanced): Print verbose diagnostics to the DMS logs for troubleshooting. Off by default; credentials are never logged.
 
 ### Cast and remote playback
@@ -87,9 +88,11 @@ MPRIS carries controls and metadata, not the audio stream. Pavucontrol will ther
 
 When no MPRIS player is actively playing, the optional **Remote Playback Fallback** polls the user's Last.fm `Now Playing` status every 15 seconds. This is protocol-independent and can display remote sessions reported by another scrobbler, including their loved state and Last.fm links. Tracks discovered this way are never submitted again by this plugin, preventing duplicate scrobbles. A playing MPRIS source always takes priority; remote `Now Playing` takes priority over paused or stale local metadata.
 
-With **Publish Remote Track to MPRIS** enabled and the optional helper built, that remote track is exposed as `org.mpris.MediaPlayer2.dms_lastfm_remote`. DMS can then show it in its official media player. The synthetic player is informational: it publishes track, artist, album and artwork but intentionally reports play/pause, previous/next and seeking as unsupported.
+With **Enable MPRIS Metadata Bridge** enabled and the optional helper built, the bridge is exposed as `org.mpris.MediaPlayer2.dms_lastfm_remote`. While local media is active it mirrors the same canonical DMS track and contributes enriched artwork without taking over transport controls. It deliberately reports `Paused` while acting as a local metadata sidecar, so it cannot compete with the real playing source. When local media is absent it can publish remote Last.fm Now Playing as `Playing` instead. The synthetic player is informational: it publishes track, artist, album, artwork and playback status but intentionally reports play/pause, previous/next and seeking as unsupported.
 
-The bridge remains listed while Last.fm reports `Now Playing`, even when a local MPRIS player is also active. DMS automatically selects a local source when it starts playing and returns to the bridge when local playback stops. The user can select either source manually from DMS's media-player menu; a manual bridge selection is respected until the local playback state changes again.
+DMS remains the sole authority for player selection. A control-capable local source wins over the bridge; an equivalent bridge mirror cannot displace the canonical player during pause/resume transitions.
+
+For YouTube Music in a browser, the plugin takes artist, title and album from DMS's canonical track. If neither MPRIS nor Last.fm provides artwork, it queries the public YouTube Music search page and accepts a thumbnail only when title plus artist, or album plus artist, match. No YouTube cookies or credentials are read.
 
 This mechanism still requires the emitting application, browser extension or service integration to send `Now Playing` to the authenticated Last.fm account. It republishes Last.fm state as MPRIS; it does not directly discover Chromecast, AirPlay, DLNA or other cast protocols.
 
@@ -103,6 +106,8 @@ Defaults:
 
 ### Offline Queue
 If a scrobble can't reach Last.fm (no network, server error, or rate limit), it is **saved to a local queue** instead of being lost (`$XDG_CACHE_HOME/dms-scrobbler/queue.json`). Queued scrobbles are automatically resent (in batches) on startup, every few minutes, and whenever connectivity is detected again. The popout shows a "scrobble(s) pending" indicator while the queue is non-empty.
+
+Queue updates are protected by an inter-process lock and written atomically. API credentials are sent to the Python helper over standard input rather than exposed in process command lines, and malformed or failed API responses never count as successful love/unlove actions.
 
 ### Repeats & Now Playing
 Replaying the same track (position jumping back to the start) is detected via MPRIS position and counts as a fresh listen, re-arming the scrobble and updating *Now Playing*. The scrobble progress bar in the popout shows how long until the current track scrobbles.

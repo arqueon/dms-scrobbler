@@ -11,7 +11,9 @@ PluginComponent {
     id: root
 
     popoutWidth: 280
-    readonly property var service: (pluginService && pluginId) ? pluginService.pluginInstances[pluginId] : null
+    readonly property var service: (pluginService && pluginId)
+        ? (pluginService.pluginDaemonInstances[pluginId] || pluginService.pluginInstances[pluginId])
+        : null
 
     readonly property bool isLoved: service ? service.isLoved : false
     readonly property bool hasActiveMedia: !!(service && service.hasTrack && service.trackTitle)
@@ -195,7 +197,9 @@ PluginComponent {
                             width: parent.width * Math.max(0, Math.min(1,
                                 (service ? service.playtimeCounter : 0) /
                                 Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
-                            color: (service && service.scrobbledThisTrack) ? "#1db954" : Theme.primary
+                            color: (service && service.scrobbleStatus === "error")
+                                ? Theme.error
+                                : ((service && service.scrobbledThisTrack) ? "#1db954" : Theme.primary)
                             Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                         }
                     }
@@ -204,10 +208,15 @@ PluginComponent {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
                         font.pixelSize: Theme.fontSizeSmall - 2
-                        color: (service && service.scrobbledThisTrack) ? "#1db954" : Theme.surfaceVariantText
+                        color: (service && service.scrobbleStatus === "error")
+                            ? Theme.error
+                            : ((service && service.scrobbledThisTrack) ? "#1db954" : Theme.surfaceVariantText)
                         text: {
                             if (!service) return "";
-                            if (service.scrobbledThisTrack) return "Scrobbled ✓";
+                            if (service.scrobbleStatus === "accepted") return "Scrobbled ✓";
+                            if (service.scrobbleStatus === "queued") return "Queued offline ✓";
+                            if (service.scrobbleStatus === "sending") return "Sending…";
+                            if (service.scrobbleStatus === "error") return "Scrobble failed";
                             var rem = Math.max(0, service.scrobbleTargetSeconds - service.playtimeCounter);
                             return "Scrobbles in " + rem + "s";
                         }
