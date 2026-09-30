@@ -62,6 +62,7 @@ Item {
     property var barHeights: []
     property var peakHeights: []
     property var peakTimes: []
+    property var fallbackValues: []
 
     function clampHeight(value) {
         return Math.max(minBarHeight, Math.min(maxBarHeight, value));
@@ -144,7 +145,8 @@ Item {
     }
 
     function sampledLevel(index) {
-        const values = root.activeCavaService?.values || [];
+        const values = (root.activeCavaService?.cavaAvailable ?? false)
+            ? (root.activeCavaService?.values || []) : root.fallbackValues;
         const leftValues = values;
         const rightValues = values;
         if (values.length === 0)
@@ -210,62 +212,67 @@ Item {
             const values = [];
             for (let i = 0; i < root.effectiveBarCount; i++)
                 values.push(Math.random() * 25 + 5);
-            root.activeCavaService.values = values;
+            root.fallbackValues = values;
+            root.refreshBarHeights();
         }
+    }
+
+    function refreshBarHeights() {
+        if (!root.shouldBindToAudio) {
+            root.resetBarHeights();
+            return;
+        }
+
+        const newHeights = [];
+        const newPeaks = [];
+        const newPeakTimes = [];
+        const now = Date.now();
+        for (let i = 0; i < root.effectiveBarCount; i++) {
+            const rawLevel = root.sampledLevel(i);
+            const previousHeight = root.barHeights[i] ?? root.minBarHeight;
+            const previousPeak = root.peakHeights[i] ?? root.minBarHeight;
+            const previousPeakTime = root.peakTimes[i] ?? 0;
+            const clampedLevel = Math.max(0, Math.min(100, rawLevel));
+            const normalizedLevel = clampedLevel / 100.0;
+            const curvedLevel = normalizedLevel <= 0 ? 0 : Math.pow(normalizedLevel, Math.max(0.05, root.responseCurve));
+            const targetHeight = root.minBarHeight + curvedLevel * root.heightRange;
+            const smoothing = targetHeight >= previousHeight ? root.attackSmoothing : root.releaseSmoothing;
+            const smoothedHeight = previousHeight + (targetHeight - previousHeight) * Math.max(0, Math.min(1, smoothing));
+
+            if (rawLevel <= 0)
+                newHeights.push(root.minBarHeight);
+            else if (rawLevel >= 100)
+                newHeights.push(root.maxBarHeight);
+            else
+                newHeights.push(root.clampHeight(smoothedHeight));
+
+            if (!root.peakHoldEnabled) {
+                newPeaks.push(newHeights[i]);
+                newPeakTimes.push(now);
+                continue;
+            }
+
+            if (newHeights[i] >= previousPeak) {
+                newPeaks.push(newHeights[i]);
+                newPeakTimes.push(now);
+            } else if (now - previousPeakTime < root.peakHoldMs) {
+                newPeaks.push(previousPeak);
+                newPeakTimes.push(previousPeakTime);
+            } else {
+                const droppedPeak = Math.max(newHeights[i], previousPeak - 1.5);
+                newPeaks.push(droppedPeak);
+                newPeakTimes.push(previousPeakTime);
+            }
+        }
+        root.barHeights = newHeights;
+        root.peakHeights = newPeaks;
+        root.peakTimes = newPeakTimes;
     }
 
     Connections {
         target: root.activeCavaService
         function onValuesChanged() {
-            if (!root.shouldBindToAudio) {
-                root.resetBarHeights();
-                return;
-            }
-
-            const newHeights = [];
-            const newPeaks = [];
-            const newPeakTimes = [];
-            const now = Date.now();
-            for (let i = 0; i < root.effectiveBarCount; i++) {
-                const rawLevel = root.sampledLevel(i);
-                const previousHeight = root.barHeights[i] ?? root.minBarHeight;
-                const previousPeak = root.peakHeights[i] ?? root.minBarHeight;
-                const previousPeakTime = root.peakTimes[i] ?? 0;
-                const clampedLevel = Math.max(0, Math.min(100, rawLevel));
-                const normalizedLevel = clampedLevel / 100.0;
-                const curvedLevel = normalizedLevel <= 0 ? 0 : Math.pow(normalizedLevel, Math.max(0.05, root.responseCurve));
-                const targetHeight = root.minBarHeight + curvedLevel * root.heightRange;
-                const smoothing = targetHeight >= previousHeight ? root.attackSmoothing : root.releaseSmoothing;
-                const smoothedHeight = previousHeight + (targetHeight - previousHeight) * Math.max(0, Math.min(1, smoothing));
-
-                if (rawLevel <= 0)
-                    newHeights.push(root.minBarHeight);
-                else if (rawLevel >= 100)
-                    newHeights.push(root.maxBarHeight);
-                else
-                    newHeights.push(root.clampHeight(smoothedHeight));
-
-                if (!root.peakHoldEnabled) {
-                    newPeaks.push(newHeights[i]);
-                    newPeakTimes.push(now);
-                    continue;
-                }
-
-                if (newHeights[i] >= previousPeak) {
-                    newPeaks.push(newHeights[i]);
-                    newPeakTimes.push(now);
-                } else if (now - previousPeakTime < root.peakHoldMs) {
-                    newPeaks.push(previousPeak);
-                    newPeakTimes.push(previousPeakTime);
-                } else {
-                    const droppedPeak = Math.max(newHeights[i], previousPeak - 1.5);
-                    newPeaks.push(droppedPeak);
-                    newPeakTimes.push(previousPeakTime);
-                }
-            }
-            root.barHeights = newHeights;
-            root.peakHeights = newPeaks;
-            root.peakTimes = newPeakTimes;
+            root.refreshBarHeights();
         }
     }
 

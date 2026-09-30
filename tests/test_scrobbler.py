@@ -135,6 +135,17 @@ class ScrobblerTests(unittest.TestCase):
         self.assertEqual(result["album_art"], "https://example.test/xl.jpg")
         self.assertEqual(call.call_args_list[1].args[0], "album.getInfo")
 
+    def test_youtube_art_search_requires_opt_in(self):
+        track_result = {"track": {"userloved": "0", "album": {"title": ""}}}
+        with mock.patch.object(SCROBBLER, "call_api", return_value=track_result), \
+             mock.patch.object(SCROBBLER, "get_youtube_music_art", return_value="art-url") as search:
+            without_opt_in = SCROBBLER.get_track_info("key", "Artist", "Track", "user")
+            self.assertNotIn("album_art", without_opt_in)
+            search.assert_not_called()
+            with_opt_in = SCROBBLER.get_track_info("key", "Artist", "Track", "user", youtube_art=True)
+            self.assertEqual(with_opt_in["album_art"], "art-url")
+            search.assert_called_once_with("Artist", "Track", "")
+
     def test_youtube_music_search_extracts_matching_art(self):
         data = {
             "contents": {

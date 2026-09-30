@@ -412,7 +412,7 @@ def get_youtube_music_art(artist, title, album_hint=""):
     return extract_youtube_music_art(html, artist, title, album_hint)
 
 
-def get_track_info(api_key, artist, title, username, album_hint=""):
+def get_track_info(api_key, artist, title, username, album_hint="", youtube_art=False):
     track_result = call_api("track.getInfo", {
         "api_key": api_key,
         "artist": artist,
@@ -449,7 +449,7 @@ def get_track_info(api_key, artist, title, username, album_hint=""):
             if art_url:
                 info["album_art"] = art_url
 
-    if not info.get("album_art"):
+    if youtube_art and not info.get("album_art"):
         art_url = get_youtube_music_art(artist, title, album_name)
         if art_url:
             info["album_art"] = art_url
@@ -697,7 +697,8 @@ def main():
         title = sys.argv[4]
         username = sys.argv[5]
         album = sys.argv[6] if len(sys.argv) > 6 else ""
-        print_json(get_track_info(api_key, artist, title, username, album))
+        youtube_art = len(sys.argv) > 7 and sys.argv[7] == "--youtube-art"
+        print_json(get_track_info(api_key, artist, title, username, album, youtube_art))
             
     else:
         print_json({"error": -1, "message": f"Unknown command: {cmd}"})

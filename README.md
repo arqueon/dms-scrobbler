@@ -17,7 +17,7 @@ The plugin is deliberately subordinate to DMS's native media controls: playback,
 - Last.fm Now Playing and scrobbling
 - love/unlove, artist/track links and offline queueing
 - explicit scrobble delivery states: sending, accepted, queued or failed
-- artwork enrichment from DMS, Last.fm track/album metadata and exact YouTube Music search matches
+- artwork enrichment from DMS and Last.fm metadata, with an optional YouTube Music search
 - optional publication of enriched local metadata and remote Last.fm playback through a read-only MPRIS source
 
 ## System Dependencies
@@ -78,7 +78,8 @@ You can customize the companion widget directly inside the settings page:
 - **Show Track Information**: Renders the `"Artist - Title"` text (capped at 140px with a scrolling marquee). *Note: Text is hidden on vertical panels for layout stability but remains available in the hover tooltip.*
 - **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble. The default includes common music players plus Chrome, Chromium and Firefox; browser media is accepted only when DMS can resolve both a title and an artist.
 - **Scrobble Threshold**: Select the percentage of track duration that must elapse before a scrobble is sent to Last.fm (defaults to `50%` or 4 minutes, whichever comes first, on tracks longer than 30 seconds).
-- **Remote Playback Fallback**: Read the authenticated account's Last.fm `Now Playing` when no usable local MPRIS source is active.
+- **Remote Playback Fallback**: When enabled, read the authenticated account's Last.fm `Now Playing` every 60 seconds during remote playback, backing off to 10 minutes when idle. On by default.
+- **Search YouTube Music for missing artwork**: When enabled, send the artist, title and album to `music.youtube.com` only if Last.fm has no cover. Off by default.
 - **Enable MPRIS Metadata Bridge**: Publish the current local track with enriched artwork, or the remote Last.fm track when no local source is active, through the optional read-only bridge.
 - **Debug Logging** (Advanced): Print verbose diagnostics to the DMS logs for troubleshooting. Off by default; credentials are never logged.
 
@@ -86,13 +87,13 @@ You can customize the companion widget directly inside the settings page:
 
 MPRIS carries controls and metadata, not the audio stream. Pavucontrol will therefore show no local application stream when playback is routed to Chromecast, AirPlay, DLNA, Spotify Connect or another remote target.
 
-When no MPRIS player is actively playing, the optional **Remote Playback Fallback** polls the user's Last.fm `Now Playing` status every 15 seconds. This is protocol-independent and can display remote sessions reported by another scrobbler, including their loved state and Last.fm links. Tracks discovered this way are never submitted again by this plugin, preventing duplicate scrobbles. A playing MPRIS source always takes priority; remote `Now Playing` takes priority over paused or stale local metadata.
+When no MPRIS player is actively playing, the optional **Remote Playback Fallback** polls the user's Last.fm `Now Playing` status every 60 seconds during remote playback and backs off to 10 minutes after repeated idle checks. This is protocol-independent and can display remote sessions reported by another scrobbler, including their loved state and Last.fm links. Tracks discovered this way are never submitted again by this plugin, preventing duplicate scrobbles. A playing MPRIS source always takes priority; remote `Now Playing` takes priority over paused or stale local metadata.
 
 With **Enable MPRIS Metadata Bridge** enabled and the optional helper built, the bridge is exposed as `org.mpris.MediaPlayer2.dms_lastfm_remote`. While local media is active it mirrors the same canonical DMS track and contributes enriched artwork without taking over transport controls. It deliberately reports `Paused` while acting as a local metadata sidecar, so it cannot compete with the real playing source. When local media is absent it can publish remote Last.fm Now Playing as `Playing` instead. The synthetic player is informational: it publishes track, artist, album, artwork and playback status but intentionally reports play/pause, previous/next and seeking as unsupported.
 
 DMS remains the sole authority for player selection. A control-capable local source wins over the bridge; an equivalent bridge mirror cannot displace the canonical player during pause/resume transitions.
 
-For YouTube Music in a browser, the plugin takes artist, title and album from DMS's canonical track. If neither MPRIS nor Last.fm provides artwork, it queries the public YouTube Music search page and accepts a thumbnail only when title plus artist, or album plus artist, match. No YouTube cookies or credentials are read.
+If **Search YouTube Music for missing artwork** is enabled and neither MPRIS nor Last.fm provides a cover, the plugin sends artist, title and album from DMS's canonical track to the public YouTube Music search page and accepts a thumbnail only when title plus artist, or album plus artist, match. No YouTube cookies or credentials are read.
 
 This mechanism still requires the emitting application, browser extension or service integration to send `Now Playing` to the authenticated Last.fm account. It republishes Last.fm state as MPRIS; it does not directly discover Chromecast, AirPlay, DLNA or other cast protocols.
 

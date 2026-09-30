@@ -24,6 +24,7 @@ PluginComponent {
     readonly property bool showTrackInfo: pluginData.showTrackInfo !== false
     readonly property bool debugLogging: pluginData.debugLogging === true
     readonly property bool remoteFallbackEnabled: pluginData.remoteFallbackEnabled !== false
+    readonly property bool youtubeArtEnabled: pluginData.youtubeArtEnabled === true
     readonly property bool publishRemoteMpris: pluginData.publishRemoteMpris !== false
 
     readonly property bool showLoveButton: pluginData.showLoveButton !== false
@@ -107,6 +108,7 @@ PluginComponent {
     property string remoteTrackUrl: ""
     property bool remoteLoved: false
     property bool remotePollRunning: false
+    property int remoteMisses: 0
     property string mprisBridgePath: ""
     property bool mprisBridgeAvailable: false
     readonly property string localArtist: {
@@ -282,7 +284,7 @@ PluginComponent {
     // Connect and other remote sessions. It only mirrors an existing Last.fm
     // Now Playing report; it never scrobbles that report again.
     Timer {
-        interval: 15000
+        interval: root.remoteNowPlaying ? 60000 : Math.min(600000, 60000 * Math.pow(2, root.remoteMisses))
         repeat: true
         running: !!(root.remoteFallbackEnabled && root.apiKey && root.username
             && !root.hasUsableLocalTrack)
@@ -297,9 +299,11 @@ PluginComponent {
             remotePollRunning = false;
             var json = parseScrobblerResult(code, output, "Last.fm Now Playing");
             if (json.error !== undefined) {
+                remoteMisses = Math.min(4, remoteMisses + 1);
                 dlog("recent Now Playing failed:", json.message || json.error);
                 return;
             }
+            remoteMisses = json.now_playing === true ? 0 : Math.min(4, remoteMisses + 1);
             var oldKey = remoteArtist + "\n" + remoteTitle;
             updatingRemote = true;
             remoteNowPlaying = json.now_playing === true;
@@ -585,14 +589,17 @@ PluginComponent {
         if (!apiKey || !username) return;
         var requestKey = currentTrackKey;
         dlog("running get-info for:", trackArtist, "-", trackTitle);
-        runScrobbler([
+        var args = [
             "get-info",
             apiKey,
             trackArtist,
             trackTitle,
             username,
             trackAlbum
-        ], function(code, output) {
+        ];
+        if (youtubeArtEnabled)
+            args.push("--youtube-art");
+        runScrobbler(args, function(code, output) {
             dlog("get-info exited with code:", code);
             var json = parseScrobblerResult(code, output, "Last.fm track info");
             if (json.error !== undefined) {

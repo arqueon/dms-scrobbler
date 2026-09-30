@@ -199,7 +199,7 @@ PluginComponent {
                                 Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
                             color: (service && service.scrobbleStatus === "error")
                                 ? Theme.error
-                                : ((service && service.scrobbledThisTrack) ? "#1db954" : Theme.primary)
+                                : ((service && service.scrobbledThisTrack) ? Theme.success : Theme.primary)
                             Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                         }
                     }
@@ -210,7 +210,7 @@ PluginComponent {
                         font.pixelSize: Theme.fontSizeSmall - 2
                         color: (service && service.scrobbleStatus === "error")
                             ? Theme.error
-                            : ((service && service.scrobbledThisTrack) ? "#1db954" : Theme.surfaceVariantText)
+                            : ((service && service.scrobbledThisTrack) ? Theme.success : Theme.surfaceVariantText)
                         text: {
                             if (!service) return "";
                             if (service.scrobbleStatus === "accepted") return "Scrobbled ✓";
@@ -230,15 +230,15 @@ PluginComponent {
 
                     // Love / Heart button
                     StyledRect {
-                        width: 38
-                        height: 38
-                        radius: 19
+                        width: Theme.iconSizeLarge + Theme.spacingXS
+                        height: Theme.iconSizeLarge + Theme.spacingXS
+                        radius: height / 2
                         color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
 
                         DankIcon {
                             name: root.isLoved ? "favorite" : "favorite_border"
                             size: 20
-                            color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                            color: root.isLoved ? Theme.error : Theme.widgetIconColor
                             anchors.centerIn: parent
                         }
 
@@ -253,9 +253,9 @@ PluginComponent {
 
                     // Open artist on Last.fm
                     StyledRect {
-                        width: 38
-                        height: 38
-                        radius: 19
+                        width: Theme.iconSizeLarge + Theme.spacingXS
+                        height: Theme.iconSizeLarge + Theme.spacingXS
+                        radius: height / 2
                         color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
@@ -277,9 +277,9 @@ PluginComponent {
 
                     // Open track on Last.fm
                     StyledRect {
-                        width: 44
-                        height: 44
-                        radius: 22
+                        width: Theme.iconSizeLarge + Theme.spacingM
+                        height: Theme.iconSizeLarge + Theme.spacingM
+                        radius: height / 2
                         color: playMouseP.containsPress ? Theme.surfaceVariant : (playMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
@@ -301,9 +301,9 @@ PluginComponent {
 
                     // Refresh Last.fm information
                     StyledRect {
-                        width: 38
-                        height: 38
-                        radius: 19
+                        width: Theme.iconSizeLarge + Theme.spacingXS
+                        height: Theme.iconSizeLarge + Theme.spacingXS
+                        radius: height / 2
                         color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
@@ -421,7 +421,7 @@ PluginComponent {
                 Rectangle {
                     width: 20
                     height: 20
-                    radius: 4
+                    radius: Theme.cornerRadiusSmall
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
@@ -520,7 +520,7 @@ PluginComponent {
                     DankIcon {
                         name: root.isLoved ? "favorite" : "favorite_border"
                         size: parent.width
-                        color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                        color: root.isLoved ? Theme.error : Theme.widgetIconColor
                         anchors.centerIn: parent
                     }
 
@@ -543,7 +543,7 @@ PluginComponent {
                 StyledText {
                     visible: root.isLoved && !!(service && service.showLoveButton)
                     text: root.isLoved ? "Loved" : ""
-                    color: "#ff4b72"
+                    color: Theme.error
                     font.pixelSize: Theme.fontSizeSmall - 1
                     font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
@@ -619,7 +619,7 @@ PluginComponent {
                 Rectangle {
                     width: 20
                     height: 20
-                    radius: 4
+                    radius: Theme.cornerRadiusSmall
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -662,7 +662,7 @@ PluginComponent {
                     DankIcon {
                         name: root.isLoved ? "favorite" : "favorite_border"
                         size: parent.width
-                        color: root.isLoved ? "#ff4b72" : Theme.widgetIconColor
+                        color: root.isLoved ? Theme.error : Theme.widgetIconColor
                         anchors.centerIn: parent
                     }
 

@@ -70,56 +70,18 @@ PluginSettings {
         spacing: Theme.spacingM
         width: parent.width
 
-        StyledRect {
-            id: authBtn
-            width: 160
-            height: 38
-            radius: Theme.cornerRadius
-            color: authMouse.containsPress ? Theme.primaryHover : (authMouse.containsMouse ? Theme.primaryContainer : Theme.primary)
-            
-            MouseArea {
-                id: authMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    if (root.service) root.service.startAuthFlow();
-                }
-            }
-
-            StyledText {
-                anchors.centerIn: parent
-                text: "1. Authenticate"
-                color: Theme.onPrimary
-                font.weight: Font.Bold
-                font.pixelSize: Theme.fontSizeSmall
-            }
+        DankButton {
+            width: (parent.width - Theme.spacingM) / 2
+            text: "1. Authenticate"
+            enabled: !!root.service
+            onClicked: root.service.startAuthFlow()
         }
 
-        StyledRect {
-            id: confirmBtn
-            width: 180
-            height: 38
-            radius: Theme.cornerRadius
-            color: confirmMouse.containsPress ? Theme.primaryHover : (confirmMouse.containsMouse ? Theme.primaryContainer : Theme.secondary)
-            
-            MouseArea {
-                id: confirmMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    if (root.service) root.service.completeAuthFlow();
-                }
-            }
-
-            StyledText {
-                anchors.centerIn: parent
-                text: "2. Confirm Authentication"
-                color: Theme.onSecondary
-                font.weight: Font.Bold
-                font.pixelSize: Theme.fontSizeSmall
-            }
+        DankButton {
+            width: (parent.width - Theme.spacingM) / 2
+            text: "2. Confirm Authentication"
+            enabled: !!root.service
+            onClicked: root.service.completeAuthFlow()
         }
     }
 
@@ -149,7 +111,7 @@ PluginSettings {
                 text: root.service && root.service.username 
                       ? "Authenticated as: <b>" + root.service.username + "</b>" 
                       : "Not authenticated. Token/Session Key is missing."
-                color: root.service && root.service.username ? Theme.primary : Theme.errorText
+                color: root.service && root.service.username ? Theme.primary : Theme.error
                 font.pixelSize: Theme.fontSizeSmall
                 textFormat: Text.StyledText
             }
@@ -174,8 +136,15 @@ PluginSettings {
     ToggleSetting {
         settingKey: "remoteFallbackEnabled"
         label: "Remote Playback Fallback"
-        description: "Show protocol-independent Now Playing data from Last.fm when no usable MPRIS player is active. External tracks are never scrobbled twice."
+        description: "Show Last.fm Now Playing when no local player is active. Checks every minute during remote playback and backs off to ten minutes when idle. External tracks are never scrobbled twice."
         defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "youtubeArtEnabled"
+        label: "Search YouTube Music for missing artwork"
+        description: "When Last.fm has no cover, send the artist, title and album to music.youtube.com to search for artwork. Off by default."
+        defaultValue: false
     }
 
     ToggleSetting {

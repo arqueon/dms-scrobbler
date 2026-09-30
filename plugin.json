@@ -2,7 +2,7 @@
 	"id": "lastfmScrobbler",
 	"name": "DMS Last.fm Scrobbler",
 	"description": "Last.fm companion for the native DMS media player: scrobbling, love/unlove and profile links",
-	"version": "1.4.0",
+	"version": "1.4.1",
 	"author": "arqueon",
 	"icon": "favorite",
 	"type": "composite",
