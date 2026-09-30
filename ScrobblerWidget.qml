@@ -9,6 +9,7 @@ import Quickshell.Services.Mpris
 
 PluginComponent {
     id: root
+    readonly property int barLabelSize: Theme.barTextSize(barThickness, barConfig ? barConfig.fontScale : undefined, barConfig ? barConfig.maximizeWidgetText : undefined)
 
     popoutWidth: 280
     readonly property var service: (pluginService && pluginId)
@@ -136,7 +137,7 @@ PluginComponent {
                     DankIcon {
                         visible: !(service && service.trackArtUrl)
                         name: "music_note"
-                        size: 64
+                        size: Theme.iconSizeLarge * 2
                         color: Theme.surfaceVariantText
                         anchors.centerIn: parent
                     }
@@ -188,12 +189,12 @@ PluginComponent {
                     Rectangle {
                         width: parent.width
                         height: 4
-                        radius: 2
+                        radius: Theme.cornerRadius
                         color: Theme.surfaceVariant
 
                         Rectangle {
                             height: parent.height
-                            radius: 2
+                            radius: Theme.cornerRadius
                             width: parent.width * Math.max(0, Math.min(1,
                                 (service ? service.playtimeCounter : 0) /
                                 Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
@@ -232,12 +233,12 @@ PluginComponent {
                     StyledRect {
                         width: Theme.iconSizeLarge + Theme.spacingXS
                         height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: height / 2
+                        radius: Theme.cornerRadius
                         color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
 
                         DankIcon {
                             name: root.isLoved ? "favorite" : "favorite_border"
-                            size: 20
+                            size: Theme.iconSizeSmall + Theme.spacingXS
                             color: root.isLoved ? Theme.error : Theme.widgetIconColor
                             anchors.centerIn: parent
                         }
@@ -255,13 +256,13 @@ PluginComponent {
                     StyledRect {
                         width: Theme.iconSizeLarge + Theme.spacingXS
                         height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: height / 2
+                        radius: Theme.cornerRadius
                         color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
                         DankIcon {
                             name: "person"
-                            size: 20
+                            size: Theme.iconSizeSmall + Theme.spacingXS
                             color: Theme.widgetIconColor
                             anchors.centerIn: parent
                         }
@@ -279,13 +280,13 @@ PluginComponent {
                     StyledRect {
                         width: Theme.iconSizeLarge + Theme.spacingM
                         height: Theme.iconSizeLarge + Theme.spacingM
-                        radius: height / 2
+                        radius: Theme.cornerRadius
                         color: playMouseP.containsPress ? Theme.surfaceVariant : (playMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
                         DankIcon {
                             name: "open_in_new"
-                            size: 24
+                            size: Theme.iconSize
                             color: Theme.primary
                             anchors.centerIn: parent
                         }
@@ -303,13 +304,13 @@ PluginComponent {
                     StyledRect {
                         width: Theme.iconSizeLarge + Theme.spacingXS
                         height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: height / 2
+                        radius: Theme.cornerRadius
                         color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                         visible: !!(service && service.hasTrack)
 
                         DankIcon {
                             name: "refresh"
-                            size: 20
+                            size: Theme.iconSizeSmall + Theme.spacingXS
                             color: Theme.widgetIconColor
                             anchors.centerIn: parent
                         }
@@ -414,14 +415,14 @@ PluginComponent {
 
             Row {
                 id: pillRow
-                spacing: Theme.spacingS
+                spacing: Theme.spacingXS
                 anchors.centerIn: parent
 
                 // 1. Album Art Thumbnail
                 Rectangle {
-                    width: 20
-                    height: 20
-                    radius: Theme.cornerRadiusSmall
+                    width: root.iconSize
+                    height: root.iconSize
+                    radius: Theme.cornerRadius / 2
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
@@ -438,9 +439,9 @@ PluginComponent {
                 MediaVisualizer {
                     id: animRow
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 20
-                    height: 20
-                    barSpan: 20
+                    width: root.iconSize
+                    height: root.iconSize
+                    barSpan: root.iconSize
                     barCount: 5
                     stretchToWidth: false
                     sourceMode: "mediaOnly"
@@ -457,7 +458,7 @@ PluginComponent {
                     id: trackTextClip
                     visible: !!(service && service.showTrackInfo && root.trackDisplay !== "")
                     width: trackText.needsScrolling ? 140 : trackText.implicitWidth
-                    height: 20
+                    height: Math.max(root.iconSize, trackText.implicitHeight)
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -468,7 +469,7 @@ PluginComponent {
 
                         text: root.trackDisplay
                         color: Theme.surfaceText
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: root.barLabelSize
                         anchors.verticalCenter: parent.verticalCenter
                         wrapMode: Text.NoWrap
                         elide: needsScrolling ? Text.ElideNone : Text.ElideRight
@@ -512,7 +513,7 @@ PluginComponent {
                 // 4. Heart Control
                 Item {
                     id: heartContainer
-                    width: Theme.barIconSize(root.barThickness, -2)
+                    width: root.iconSize
                     height: width
                     visible: !!(service && service.showLoveButton)
                     anchors.verticalCenter: parent.verticalCenter
@@ -544,7 +545,7 @@ PluginComponent {
                     visible: root.isLoved && !!(service && service.showLoveButton)
                     text: root.isLoved ? "Loved" : ""
                     color: Theme.error
-                    font.pixelSize: Theme.fontSizeSmall - 1
+                    font.pixelSize: root.barLabelSize
                     font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -612,14 +613,14 @@ PluginComponent {
 
             Column {
                 id: pillCol
-                spacing: Theme.spacingS
+                spacing: Theme.spacingXS
                 anchors.horizontalCenter: parent.horizontalCenter
 
                 // 1. Album Art Thumbnail (vertical)
                 Rectangle {
-                    width: 20
-                    height: 20
-                    radius: Theme.cornerRadiusSmall
+                    width: root.iconSize
+                    height: root.iconSize
+                    radius: Theme.cornerRadius / 2
                     color: Theme.surfaceVariant
                     clip: true
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -637,9 +638,9 @@ PluginComponent {
                     id: animCol
                     anchors.horizontalCenter: parent.horizontalCenter
                     verticalMode: true
-                    width: 20
-                    height: 20
-                    barSpan: 20
+                    width: root.iconSize
+                    height: root.iconSize
+                    barSpan: root.iconSize
                     barCount: 5
                     stretchToWidth: false
                     sourceMode: "mediaOnly"
@@ -654,7 +655,7 @@ PluginComponent {
                 // Heart Control (vertical)
                 Item {
                     id: heartContainerV
-                    width: Theme.barIconSize(root.barThickness, -2)
+                    width: root.iconSize
                     height: width
                     visible: !!(service && service.showLoveButton)
                     anchors.horizontalCenter: parent.horizontalCenter
