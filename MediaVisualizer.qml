@@ -43,8 +43,12 @@ Item {
     readonly property real contentSpan: stretchToWidth ? barSpan : (effectiveBarCount * computedBarWidth + Math.max(0, effectiveBarCount - 1) * computedSpacing)
     readonly property string effectiveVisualizerStyle: visualizerStyle === "centeredBars" ? "bars" : visualizerStyle
 
-    width: verticalMode ? 20 : barSpan
-    height: verticalMode ? barSpan : 20
+    // Fixed track extent for bars/dots, derived from Theme so the visualizer
+    // follows icon-density tokens instead of hardcoded pixels.
+    readonly property real trackSize: Theme.iconSizeMedium
+
+    width: verticalMode ? root.trackSize : barSpan
+    height: verticalMode ? barSpan : root.trackSize
 
     Loader {
         active: shouldBindToAudio
@@ -95,9 +99,9 @@ Item {
         case "top":
             return 0;
         case "bottom":
-            return 20 - barHeight;
+            return trackSize - barHeight;
         default:
-            return (20 - barHeight) / 2;
+            return (trackSize - barHeight) / 2;
         }
     }
 
@@ -106,9 +110,9 @@ Item {
         case "top":
             return 0;
         case "bottom":
-            return 20 - barWidth;
+            return trackSize - barWidth;
         default:
-            return (20 - barWidth) / 2;
+            return (trackSize - barWidth) / 2;
         }
     }
 
@@ -278,8 +282,8 @@ Item {
 
     Item {
         anchors.centerIn: parent
-        width: root.verticalMode ? 20 : root.contentSpan
-        height: root.verticalMode ? root.contentSpan : 20
+        width: root.verticalMode ? root.trackSize : root.contentSpan
+        height: root.verticalMode ? root.contentSpan : root.trackSize
 
         Row {
             visible: !root.verticalMode
@@ -291,14 +295,14 @@ Item {
 
                 Item {
                     width: root.computedBarWidth
-                    height: 20
+                    height: root.trackSize
 
                     Rectangle {
                         width: parent.width
                         height: root.barHeights[index]
-                        radius: 1.5
+                        radius: Theme.cornerRadiusXXS
                         color: root.barColorAt(index)
-                        y: root.effectiveVisualizerStyle === "bars" ? root.alignedY(height) : (20 - height) / 2
+                        y: root.effectiveVisualizerStyle === "bars" ? root.alignedY(height) : (root.trackSize - height) / 2
                         visible: root.effectiveVisualizerStyle === "bars"
 
                         Behavior on height {
@@ -368,15 +372,15 @@ Item {
                 model: root.effectiveBarCount
 
                 Item {
-                    width: 20
+                    width: root.trackSize
                     height: root.computedBarWidth
 
                     Rectangle {
                         width: root.barHeights[index]
                         height: parent.height
-                        radius: 1.5
+                        radius: Theme.cornerRadiusXXS
                         color: root.barColorAt(index)
-                        x: root.effectiveVisualizerStyle === "bars" ? root.alignedX(width) : (20 - width) / 2
+                        x: root.effectiveVisualizerStyle === "bars" ? root.alignedX(width) : (root.trackSize - width) / 2
                         visible: root.effectiveVisualizerStyle === "bars"
 
                         Behavior on width {
@@ -394,7 +398,7 @@ Item {
                         height: parent.height
                         radius: 1
                         color: root.barColorAt(index)
-                        x: root.effectiveVisualizerStyle === "bars" ? Math.max(0, root.alignedX(root.peakHeights[index] ?? root.minBarHeight) - 2) : Math.max(0, (20 - (root.peakHeights[index] ?? root.minBarHeight)) / 2)
+                        x: root.effectiveVisualizerStyle === "bars" ? Math.max(0, root.alignedX(root.peakHeights[index] ?? root.minBarHeight) - 2) : Math.max(0, (root.trackSize - (root.peakHeights[index] ?? root.minBarHeight)) / 2)
                     }
 
                     Rectangle {

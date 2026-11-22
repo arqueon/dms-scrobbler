@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Common
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 import qs.Services
 import qs.Widgets
@@ -56,7 +57,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "radio"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -111,21 +112,21 @@ PluginSettings {
         spacing: Theme.spacingM
         width: parent.width
 
-        DankButton {
+        DButton {
             width: (parent.width - Theme.spacingM * 2) / 3
             text: "1. Authenticate"
             enabled: !!root.service
             onClicked: root.service.startAuthFlow()
         }
 
-        DankButton {
+        DButton {
             width: (parent.width - Theme.spacingM * 2) / 3
             text: "2. Confirm Auth"
             enabled: !!root.service
             onClicked: root.service.completeAuthFlow()
         }
 
-        DankButton {
+        DButton {
             width: (parent.width - Theme.spacingM * 2) / 3
             text: "Disconnect"
             enabled: !!(root.service && root.service.username)
@@ -180,7 +181,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "graphic_eq"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -237,14 +238,14 @@ PluginSettings {
         spacing: Theme.spacingM
         width: parent.width
 
-        DankButton {
+        DButton {
             width: (parent.width - Theme.spacingM) * 0.6
             text: (root.service && root.service.lbTokenValidationRunning) ? "Validating…" : "Validate Token"
             enabled: !!(root.service && root.service.listenbrainzToken && !root.service.lbTokenValidationRunning)
             onClicked: root.service.validateListenBrainzToken(false)
         }
 
-        DankButton {
+        DButton {
             width: (parent.width - Theme.spacingM) * 0.4
             text: "Disconnect"
             enabled: !!(root.service && (root.service.listenbrainzToken || root.service.listenbrainzUsername))
@@ -307,7 +308,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "tune"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -387,7 +388,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "palette"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -447,7 +448,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "mouse"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -513,7 +514,7 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.spacingS
 
-            DankIcon {
+            DIcon {
                 name: "settings_applications"
                 size: Theme.iconSize
                 color: Theme.primary
@@ -570,7 +571,7 @@ PluginSettings {
                 }
             }
 
-            DankButton {
+            DButton {
                 id: flushQueueBtn
                 text: "Flush Queue Now"
                 anchors.verticalCenter: parent.verticalCenter

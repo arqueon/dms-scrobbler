@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
 import qs.Common
+import qs.DCommon.Widgets
 import qs.Widgets
 import qs.Services
 import qs.Modules.Plugins
@@ -10,6 +11,16 @@ import Quickshell.Services.Mpris
 PluginComponent {
     id: root
     readonly property int barLabelSize: Theme.barTextSize(barThickness, barConfig ? barConfig.fontScale : undefined, barConfig ? barConfig.maximizeWidgetText : undefined)
+
+    // Token-derived sizing (dux-plugin-registry review notes): the popout and
+    // the bar pill avoid hardcoded pixel sizes so font/density scale applies.
+    readonly property real popoutArtSize: Theme.spacingXL * 8 - Theme.spacingS
+    readonly property real actionButtonSize: Theme.avatarSize
+    readonly property real actionIconSize: Theme.iconSizeSmall + Theme.spacingXXS
+    readonly property real chipHeight: Theme.iconSizeSmall + Theme.spacingS
+    readonly property real chipIconSize: Theme.iconSizeSmall - Theme.spacingXS
+    readonly property real progressBarHeight: Theme.spacingXS
+    readonly property real pillTextMaxWidth: Theme.spacingXL * 6 - Theme.spacingXS
 
     popoutWidth: 304
     readonly property var service: (pluginService && pluginId)
@@ -52,7 +63,7 @@ PluginComponent {
     readonly property real minTooltipY: {
         if (!parentScreen || !isVertical) return 0;
         if (parentScreen.y > 0) {
-            var spacing = (barConfig && barConfig.spacing !== undefined) ? barConfig.spacing : 4;
+            var spacing = (barConfig && barConfig.spacing !== undefined) ? barConfig.spacing : Theme.spacingXS;
             return barThickness + spacing;
         }
         return 0;
@@ -236,13 +247,13 @@ PluginComponent {
                 Row {
                     spacing: Theme.spacingS
 
-                    DankButton {
+                    DButton {
                         text: root.isLoved ? "Unlove" : "Love"
                         enabled: root.hasActiveMedia && !(root.service && root.service.lovePending)
                         onClicked: root.toggleLove()
                     }
 
-                    DankButton {
+                    DButton {
                         text: (root.service && root.service.scrobbleStatus === "error") ? "Retry" : "Refresh"
                         enabled: root.hasActiveMedia || !!(root.service && root.service.pendingScrobbles > 0)
                         onClicked: {
@@ -289,7 +300,7 @@ PluginComponent {
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Theme.spacingS
 
-                        DankIcon {
+                        DIcon {
                             name: "music_off"
                             size: Theme.iconSizeLarge
                             color: Theme.surfaceVariantText
@@ -325,7 +336,7 @@ PluginComponent {
                             StyledRect {
                                 visible: !!(service && service.lastfmConfigured)
                                 width: emptyLfmRow.implicitWidth + Theme.spacingS * 2
-                                height: 24
+                                height: root.chipHeight
                                 radius: Theme.cornerRadiusSmall
                                 color: Theme.surfaceContainerHigh
 
@@ -333,9 +344,9 @@ PluginComponent {
                                     id: emptyLfmRow
                                     anchors.centerIn: parent
                                     spacing: Theme.spacingXS
-                                    DankIcon {
+                                    DIcon {
                                         name: "check_circle"
-                                        size: 13
+                                        size: root.chipIconSize
                                         color: Theme.success
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
@@ -351,7 +362,7 @@ PluginComponent {
                             StyledRect {
                                 visible: !!(service && service.listenbrainzConfigured)
                                 width: emptyLbRow.implicitWidth + Theme.spacingS * 2
-                                height: 24
+                                height: root.chipHeight
                                 radius: Theme.cornerRadiusSmall
                                 color: Theme.surfaceContainerHigh
 
@@ -359,9 +370,9 @@ PluginComponent {
                                     id: emptyLbRow
                                     anchors.centerIn: parent
                                     spacing: Theme.spacingXS
-                                    DankIcon {
+                                    DIcon {
                                         name: "check_circle"
-                                        size: 13
+                                        size: root.chipIconSize
                                         color: Theme.success
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
@@ -375,7 +386,7 @@ PluginComponent {
                             }
                         }
 
-                        DankButton {
+                        DButton {
                             visible: !!(service && service.pendingScrobbles > 0)
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: "Flush " + (service ? service.pendingScrobbles : 0) + " queued"
@@ -392,8 +403,8 @@ PluginComponent {
 
                     // 1. Album Cover Art (Centered, Framed)
                     Rectangle {
-                        width: 184
-                        height: 184
+                        width: root.popoutArtSize
+                        height: root.popoutArtSize
                         radius: Theme.cornerRadius
                         color: Theme.surfaceContainerHigh
                         border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.16)
@@ -434,7 +445,7 @@ PluginComponent {
                             }
                         }
 
-                        DankIcon {
+                        DIcon {
                             visible: !(service && service.trackArtUrl) || popoutArt.status !== Image.Ready
                             name: "music_note"
                             size: Theme.iconSizeLarge * 2
@@ -447,7 +458,7 @@ PluginComponent {
                     StyledRect {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: Math.min(parent.width, sourceBadgeRow.implicitWidth + Theme.spacingM)
-                        height: 22
+                        height: root.chipHeight
                         radius: Theme.cornerRadiusSmall
                         color: Theme.surfaceContainerHigh
 
@@ -456,9 +467,9 @@ PluginComponent {
                             anchors.centerIn: parent
                             spacing: Theme.spacingXS
 
-                            DankIcon {
+                            DIcon {
                                 name: (service && service.isRemoteSource) ? "podcasts" : "album"
-                                size: 13
+                                size: root.chipIconSize
                                 color: (service && service.isRemoteSource) ? Theme.primary : Theme.surfaceVariantText
                                 anchors.verticalCenter: parent.verticalCenter
                             }
@@ -520,7 +531,7 @@ PluginComponent {
 
                         Rectangle {
                             width: parent.width
-                            height: 5
+                            height: root.progressBarHeight
                             radius: Theme.cornerRadius
                             color: Theme.surfaceVariant
 
@@ -576,7 +587,7 @@ PluginComponent {
                         StyledRect {
                             visible: !!(service && (service.lastfmConfigured || (service.isRemoteSource && service.remoteService === "lastfm")))
                             width: lfmChipRow.implicitWidth + Theme.spacingM
-                            height: 26
+                            height: root.chipHeight
                             radius: Theme.cornerRadiusSmall
                             color: lfmChipMouse.containsPress ? Theme.surfaceVariant : (lfmChipMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.14)
@@ -587,9 +598,9 @@ PluginComponent {
                                 anchors.centerIn: parent
                                 spacing: Theme.spacingXS
 
-                                DankIcon {
+                                DIcon {
                                     name: root.statusIconName(service ? service.lastfmScrobbleStatus : "idle")
-                                    size: 13
+                                    size: root.chipIconSize
                                     color: root.statusIconColor(service ? service.lastfmScrobbleStatus : "idle")
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -602,10 +613,10 @@ PluginComponent {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                DankIcon {
+                                DIcon {
                                     visible: !!(service && service.lastfmLoved)
                                     name: "favorite"
-                                    size: 12
+                                    size: root.chipIconSize
                                     color: Theme.error
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -624,7 +635,7 @@ PluginComponent {
                         StyledRect {
                             visible: !!(service && (service.listenbrainzConfigured || (service.isRemoteSource && service.remoteService === "listenbrainz")))
                             width: lbChipRow.implicitWidth + Theme.spacingM
-                            height: 26
+                            height: root.chipHeight
                             radius: Theme.cornerRadiusSmall
                             color: lbChipMouse.containsPress ? Theme.surfaceVariant : (lbChipMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.14)
@@ -635,9 +646,9 @@ PluginComponent {
                                 anchors.centerIn: parent
                                 spacing: Theme.spacingXS
 
-                                DankIcon {
+                                DIcon {
                                     name: root.statusIconName(service ? service.listenbrainzScrobbleStatus : "idle")
-                                    size: 13
+                                    size: root.chipIconSize
                                     color: root.statusIconColor(service ? service.listenbrainzScrobbleStatus : "idle")
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -650,10 +661,10 @@ PluginComponent {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                DankIcon {
+                                DIcon {
                                     visible: !!(service && service.listenbrainzLoved)
                                     name: "favorite"
-                                    size: 12
+                                    size: root.chipIconSize
                                     color: Theme.error
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -677,7 +688,7 @@ PluginComponent {
                         // Primary Love pill button
                         StyledRect {
                             width: loveBtnRow.implicitWidth + Theme.spacingM * 1.5
-                            height: 36
+                            height: root.actionButtonSize
                             radius: Theme.cornerRadius
                             opacity: (service && service.lovePending) ? 0.6 : 1.0
                             color: {
@@ -702,9 +713,9 @@ PluginComponent {
                                 anchors.centerIn: parent
                                 spacing: Theme.spacingXS
 
-                                DankIcon {
+                                DIcon {
                                     name: root.isLoved ? "favorite" : "favorite_border"
-                                    size: Theme.iconSizeSmall + 2
+                                    size: root.actionIconSize
                                     color: root.isLoved ? Theme.error : Theme.widgetIconColor
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -732,16 +743,16 @@ PluginComponent {
                         // Sync missing love across services when partially loved
                         StyledRect {
                             visible: !!(service && service.isPartiallyLoved)
-                            width: 36
-                            height: 36
+                            width: root.actionButtonSize
+                            height: root.actionButtonSize
                             radius: Theme.cornerRadius
                             color: syncLoveMouseP.containsPress ? Theme.surfaceVariant : (syncLoveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.35)
                             border.width: 1
 
-                            DankIcon {
+                            DIcon {
                                 name: "sync"
-                                size: Theme.iconSizeSmall + 2
+                                size: root.actionIconSize
                                 color: Theme.primary
                                 anchors.centerIn: parent
                             }
@@ -757,16 +768,16 @@ PluginComponent {
 
                         // Open Artist
                         StyledRect {
-                            width: 36
-                            height: 36
+                            width: root.actionButtonSize
+                            height: root.actionButtonSize
                             radius: Theme.cornerRadius
                             color: artistMouseP.containsPress ? Theme.surfaceVariant : (artistMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
                             border.width: 1
 
-                            DankIcon {
+                            DIcon {
                                 name: "person"
-                                size: Theme.iconSizeSmall + 2
+                                size: root.actionIconSize
                                 color: Theme.widgetIconColor
                                 anchors.centerIn: parent
                             }
@@ -787,16 +798,16 @@ PluginComponent {
 
                         // Open Track
                         StyledRect {
-                            width: 36
-                            height: 36
+                            width: root.actionButtonSize
+                            height: root.actionButtonSize
                             radius: Theme.cornerRadius
                             color: trackMouseP.containsPress ? Theme.surfaceVariant : (trackMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
                             border.width: 1
 
-                            DankIcon {
+                            DIcon {
                                 name: "open_in_new"
-                                size: Theme.iconSizeSmall + 2
+                                size: root.actionIconSize
                                 color: Theme.primary
                                 anchors.centerIn: parent
                             }
@@ -817,16 +828,16 @@ PluginComponent {
 
                         // Refresh track info
                         StyledRect {
-                            width: 36
-                            height: 36
+                            width: root.actionButtonSize
+                            height: root.actionButtonSize
                             radius: Theme.cornerRadius
                             color: refreshMouseP.containsPress ? Theme.surfaceVariant : (refreshMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
                             border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
                             border.width: 1
 
-                            DankIcon {
+                            DIcon {
                                 name: "refresh"
-                                size: Theme.iconSizeSmall + 2
+                                size: root.actionIconSize
                                 color: Theme.widgetIconColor
                                 anchors.centerIn: parent
                             }
@@ -887,7 +898,7 @@ PluginComponent {
                             StyledRect {
                                 id: bannerActionBtn
                                 width: bannerBtnTxt.implicitWidth + Theme.spacingM
-                                height: 24
+                                height: root.chipHeight
                                 radius: Theme.cornerRadiusSmall
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: bannerBtnMouse.containsPress ? Theme.surfaceVariant : Theme.surfaceContainer
@@ -952,9 +963,9 @@ PluginComponent {
             id: hPill
             visible: root.hasActiveMedia
             implicitWidth: root.hasActiveMedia ? pillRow.implicitWidth : 0
-            implicitHeight: root.hasActiveMedia ? (pillRow.implicitHeight || 24) : 0
+            implicitHeight: root.hasActiveMedia ? (pillRow.implicitHeight || Theme.iconSize) : 0
 
-            // Use DMS's native DankTooltip (a separate layer-shell window) like the
+            // Use DMS's native DTooltip (a separate layer-shell window) like the
             // built-in bar widgets, so the tooltip is never clipped by the bar window.
             property bool anyHover: pillMouse.containsMouse || heartMouse.containsMouse
             onAnyHoverChanged: {
@@ -971,7 +982,7 @@ PluginComponent {
             Loader {
                 id: hTipLoader
                 active: false
-                sourceComponent: DankTooltip {}
+                sourceComponent: DTooltip {}
             }
 
             Timer {
@@ -1051,60 +1062,26 @@ PluginComponent {
                     visible: !!(service && service.showMusicAnimation && service.activePlayer && service.playbackState === MprisPlaybackState.Playing)
                 }
 
-                // 3. Track Info (Artist - Title) with marquee/scrolling animation
+                // 3. Track Info (Artist - Title) — scrolls through the DMS
+                // ScrollingText widget, which honors SettingsData.scrollTitleEnabled,
+                // Theme.reduceMotion and window visibility, and only animates while
+                // the text actually overflows the pill.
                 Item {
                     id: trackTextClip
                     visible: !!(service && service.showTrackInfo && root.trackDisplay !== "")
-                    width: trackText.needsScrolling ? 140 : trackText.implicitWidth
-                    height: Math.max(root.iconSize, trackText.implicitHeight)
+                    width: trackScroller.implicitTextWidth > root.pillTextMaxWidth
+                        ? root.pillTextMaxWidth
+                        : trackScroller.implicitTextWidth
+                    height: Math.max(root.iconSize, trackScroller.implicitTextHeight)
                     clip: true
                     anchors.verticalCenter: parent.verticalCenter
 
-                    StyledText {
-                        id: trackText
-                        property bool needsScrolling: implicitWidth > 140
-                        property real scrollOffset: 0
-
+                    ScrollingText {
+                        id: trackScroller
+                        anchors.fill: parent
                         text: root.trackDisplay
                         color: Theme.surfaceText
                         font.pixelSize: root.barLabelSize
-                        anchors.verticalCenter: parent.verticalCenter
-                        wrapMode: Text.NoWrap
-                        elide: needsScrolling ? Text.ElideNone : Text.ElideRight
-                        x: needsScrolling ? -scrollOffset : 0
-                        width: needsScrolling ? implicitWidth : parent.width
-
-                        onTextChanged: {
-                            scrollOffset = 0;
-                            scrollAnim.restart();
-                        }
-
-                        SequentialAnimation {
-                            id: scrollAnim
-                            running: trackText.needsScrolling && trackTextClip.visible
-                            loops: Animation.Infinite
-
-                            PauseAnimation { duration: 1500 }
-
-                            NumberAnimation {
-                                target: trackText
-                                property: "scrollOffset"
-                                from: 0
-                                to: Math.max(0, trackText.implicitWidth - 140 + 8)
-                                duration: Math.max(1000, Math.round((trackText.implicitWidth - 140 + 8) / 30 * 1000))
-                                easing.type: Easing.Linear
-                            }
-
-                            PauseAnimation { duration: 1500 }
-
-                            NumberAnimation {
-                                target: trackText
-                                property: "scrollOffset"
-                                to: 0
-                                duration: Math.max(1000, Math.round((trackText.implicitWidth - 140 + 8) / 30 * 1000))
-                                easing.type: Easing.Linear
-                            }
-                        }
                     }
                 }
 
@@ -1117,7 +1094,7 @@ PluginComponent {
                     opacity: (service && service.lovePending) ? 0.55 : 1.0
                     anchors.verticalCenter: parent.verticalCenter
 
-                    DankIcon {
+                    DIcon {
                         name: root.isLoved ? "favorite" : "favorite_border"
                         size: parent.width
                         color: root.isLoved ? Theme.error : Theme.widgetIconColor
@@ -1151,7 +1128,7 @@ PluginComponent {
                 }
 
                 // Fallback icon if all optional elements are disabled so pill stays visible
-                DankIcon {
+                DIcon {
                     visible: !hArtRect.visible && !animRow.visible && !trackTextClip.visible && !heartContainer.visible
                     name: "music_note"
                     size: root.iconSize
@@ -1170,7 +1147,7 @@ PluginComponent {
             implicitHeight: root.hasActiveMedia ? pillCol.implicitHeight : 0
 
             // The bar window is too narrow on a vertical panel for an in-window tooltip
-            // (it gets clipped/wrapped). DankTooltip is a separate layer-shell window
+            // (it gets clipped/wrapped). DTooltip is a separate layer-shell window
             // positioned by global screen coordinates, so it renders fully and readable.
             property bool anyHover: pillMouseV.containsMouse || heartMouseV.containsMouse
             onAnyHoverChanged: {
@@ -1187,7 +1164,7 @@ PluginComponent {
             Loader {
                 id: vTipLoader
                 active: false
-                sourceComponent: DankTooltip {}
+                sourceComponent: DTooltip {}
             }
 
             Timer {
@@ -1272,7 +1249,7 @@ PluginComponent {
                     opacity: (service && service.lovePending) ? 0.55 : 1.0
                     anchors.horizontalCenter: parent.horizontalCenter
 
-                    DankIcon {
+                    DIcon {
                         name: root.isLoved ? "favorite" : "favorite_border"
                         size: parent.width
                         color: root.isLoved ? Theme.error : Theme.widgetIconColor
@@ -1296,7 +1273,7 @@ PluginComponent {
                 }
 
                 // Fallback icon if all optional elements are disabled
-                DankIcon {
+                DIcon {
                     visible: !vArtRect.visible && !animCol.visible && !heartContainerV.visible
                     name: "music_note"
                     size: root.iconSize
