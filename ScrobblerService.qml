@@ -12,22 +12,41 @@ PluginComponent {
     pluginId: "lastfmScrobbler"
     property var popoutService: null
 
-    // Configuration loaded from pluginData (reactive)
+    // Last.fm configuration loaded from pluginData (reactive)
+    readonly property bool lastfmEnabled: pluginData.lastfmEnabled !== false
     readonly property string apiKey: pluginData.apiKey || ""
     readonly property string apiSecret: pluginData.apiSecret || ""
     readonly property string sessionKey: pluginData.sessionKey || ""
     readonly property string username: pluginData.username || ""
+    readonly property bool lastfmReadConfigured: !!(lastfmEnabled && apiKey && username)
+    readonly property bool lastfmConfigured: !!(lastfmEnabled && apiKey && apiSecret && sessionKey)
+
+    // ListenBrainz configuration loaded from pluginData (reactive)
+    readonly property bool listenbrainzEnabled: pluginData.listenbrainzEnabled === true
+    readonly property string listenbrainzToken: (pluginData.listenbrainzToken || "").trim()
+    readonly property string listenbrainzUsername: (pluginData.listenbrainzUsername || "").trim()
+    readonly property string listenbrainzUrl: {
+        var url = (pluginData.listenbrainzUrl || "").trim();
+        return url !== "" ? url : "https://api.listenbrainz.org";
+    }
+    readonly property bool listenbrainzConfigured: !!(listenbrainzEnabled && listenbrainzToken)
+    readonly property bool anyServiceConfigured: lastfmConfigured || listenbrainzConfigured
+
+    // Behavior & UI configuration
     readonly property string playerWhitelist: pluginData.playerWhitelist || "spotify, mpd, cider, audacious, strawberry, clementine, rhythmbox, lollypop, chrome, firefox, chromium"
-    readonly property int scrobbleThreshold: pluginData.scrobbleThreshold !== undefined ? pluginData.scrobbleThreshold : 50
+    readonly property int scrobbleThreshold: {
+        var parsed = parseInt(pluginData.scrobbleThreshold, 10);
+        return (!isNaN(parsed) && parsed > 0) ? parsed : 50;
+    }
     readonly property bool showMusicAnimation: pluginData.showMusicAnimation !== false
     readonly property bool showAlbumArt: pluginData.showAlbumArt !== false
     readonly property bool showTrackInfo: pluginData.showTrackInfo !== false
+    readonly property bool showLoveButton: pluginData.showLoveButton !== false
+    readonly property bool showNotifications: pluginData.showNotifications !== false
     readonly property bool debugLogging: pluginData.debugLogging === true
     readonly property bool remoteFallbackEnabled: pluginData.remoteFallbackEnabled !== false
     readonly property bool youtubeArtEnabled: pluginData.youtubeArtEnabled === true
     readonly property bool publishRemoteMpris: pluginData.publishRemoteMpris !== false
-
-    readonly property bool showLoveButton: pluginData.showLoveButton !== false
 
     function companionAction(value, fallback) {
         // Migrate settings from pre-1.3 releases, when the plugin duplicated
@@ -43,7 +62,7 @@ PluginComponent {
     readonly property string pillRightAction: companionAction(pluginData.pillRightAction, "lastfm_track")
 
     // Gated logger: only emits when the user enables Debug Logging in settings.
-    // Never pass secrets (API key/secret/session key) to this.
+    // Never pass secrets (API key/secret/session key/ListenBrainz token) to this.
     function dlog() {
         if (!root.debugLogging) return;
         var parts = [];
@@ -55,28 +74,28 @@ PluginComponent {
         if (!player) return false;
         var identity = "";
         var title = "";
-        
+
         if (typeof player === "string") {
             identity = player.toLowerCase();
         } else {
             identity = (player.identity || "").toLowerCase();
             title = (player.trackTitle || "").toLowerCase();
         }
-        
+
         var list = root.playerWhitelist.split(",").map(function(item) {
             return item.trim().toLowerCase();
         });
-        
+
         for (var i = 0; i < list.length; i++) {
             var item = list[i];
             if (!item) continue;
-            
+
             // 1. Substring match on identity (e.g., "chrome" matches "Google Chrome")
             if (identity && (identity.indexOf(item) !== -1 || item.indexOf(identity) !== -1)) {
                 return true;
             }
-            
-            // 2. Substring match on track title for web streams (e.g., "youtube music" whitelist item matches "Song | YouTube Music")
+
+            // 2. Substring match on track title for web streams
             if (item === "youtube music" || item === "youtube" || item === "ytmusic") {
                 if (title.indexOf("youtube music") !== -1 || title.indexOf("youtube") !== -1) {
                     return true;
@@ -101,16 +120,21 @@ PluginComponent {
 
     property bool updatingRemote: false
     property bool remoteNowPlaying: false
+    property string remoteService: ""
     property string remoteArtist: ""
     property string remoteTitle: ""
     property string remoteAlbum: ""
     property string remoteArtUrl: ""
     property string remoteTrackUrl: ""
+    property string remoteRecordingMbid: ""
+    property string remoteRecordingMsid: ""
     property bool remoteLoved: false
     property bool remotePollRunning: false
     property int remoteMisses: 0
     property string mprisBridgePath: ""
     property bool mprisBridgeAvailable: false
+    property int bridgeRestartAttempts: 0
+
     readonly property string localArtist: {
         if (!activePlayer) return "";
         if (MprisController.stableArtist) return MprisController.stableArtist.trim();
@@ -133,9 +157,25 @@ PluginComponent {
     readonly property bool isRemoteSource: !hasUsableLocalTrack && remoteNowPlaying
     readonly property bool hasTrack: hasUsableLocalTrack || isRemoteSource
     readonly property bool canScrobbleCurrent: hasUsableLocalTrack
-    readonly property string sourceLabel: isRemoteSource ? "Last.fm Now Playing (remote)" : (activePlayer ? (activePlayer.identity || "MPRIS") : "None")
-    readonly property string playerIdentity: isRemoteSource ? "lastfm-remote" : (activePlayer ? (activePlayer.identity || "") : "")
-    readonly property int trackLength: hasUsableLocalTrack ? (activePlayer.length || 0) : 0
+    readonly property string sourceLabel: {
+        if (isRemoteSource) {
+            return remoteService === "listenbrainz"
+                ? "ListenBrainz Now Playing (remote)"
+                : "Last.fm Now Playing (remote)";
+        }
+        return activePlayer ? (activePlayer.identity || "MPRIS") : "None";
+    }
+    readonly property string playerIdentity: isRemoteSource
+        ? (remoteService === "listenbrainz" ? "listenbrainz-remote" : "lastfm-remote")
+        : (activePlayer ? (activePlayer.identity || "") : "")
+    readonly property int trackLength: {
+        if (!hasUsableLocalTrack || !activePlayer) return 0;
+        var stable = ("activePlayerStableLength" in MprisController && MprisController.activePlayerStableLength > 0)
+            ? MprisController.activePlayerStableLength
+            : (activePlayer.length || 0);
+        return Math.max(0, Math.round(stable));
+    }
+    readonly property int trackDurationMs: trackLength > 0 ? trackLength * 1000 : 0
     readonly property var playbackState: hasUsableLocalTrack ? activePlayer.playbackState : null
 
     readonly property string trackArtist: isRemoteSource ? remoteArtist : (hasUsableLocalTrack ? localArtist : "")
@@ -143,6 +183,11 @@ PluginComponent {
 
     property string lastfmArtUrl: ""
     property string lastfmAlbum: ""
+    property string lbAlbum: ""
+    property string lbRecordingMbid: ""
+    property string lbRecordingMsid: ""
+    property string lbReleaseMbid: ""
+    property var lbArtistMbids: []
 
     readonly property string trackArtUrl: {
         if (isRemoteSource && remoteArtUrl) return remoteArtUrl;
@@ -165,7 +210,7 @@ PluginComponent {
         if (hasUsableLocalTrack && activePlayer.trackAlbum && activePlayer.trackAlbum.trim() !== "") {
             return cleanTitleSuffix(activePlayer.trackAlbum);
         }
-        return lastfmAlbum;
+        return lastfmAlbum || lbAlbum;
     }
 
     readonly property bool shouldPublishMpris: publishRemoteMpris
@@ -176,7 +221,7 @@ PluginComponent {
     readonly property string bridgeAlbum: hasUsableLocalTrack ? trackAlbum : remoteAlbum
     readonly property string bridgeArtUrl: hasUsableLocalTrack ? trackArtUrl : remoteArtUrl
     // A local bridge is a metadata sidecar, never a competing playing source.
-    // Remote Last.fm Now Playing remains "Playing" so DMS can select it when
+    // Remote Now Playing remains "Playing" so DMS can select it when
     // there is no local MPRIS player.
     readonly property string bridgePlaybackStatus: hasUsableLocalTrack ? "Paused" : "Playing"
     readonly property string bridgeTrackUrl: hasUsableLocalTrack
@@ -217,24 +262,129 @@ PluginComponent {
         return { "artist": artist, "title": stripDecorations(rest) };
     }
 
+    // Per-service & aggregate playback/scrobble/love state
     property bool scrobbledThisTrack: false
     property bool scrobbleAttemptedThisTrack: false
     property string scrobbleStatus: "idle"
-    property bool isLoved: false
+    property string lastfmScrobbleStatus: "idle"
+    property string listenbrainzScrobbleStatus: "idle"
+    property string lastfmScrobbleError: ""
+    property string listenbrainzScrobbleError: ""
+
+    property bool lastfmLoved: false
+    property bool listenbrainzLoved: false
+    property bool lovePending: false
+    readonly property bool isLoved: {
+        if (lastfmConfigured && lastfmLoved) return true;
+        if (listenbrainzConfigured && listenbrainzLoved) return true;
+        if (!lastfmConfigured && !listenbrainzConfigured && isRemoteSource && remoteLoved) return true;
+        return false;
+    }
+    readonly property bool isFullyLoved: {
+        if (!anyServiceConfigured) return isLoved;
+        if (lastfmConfigured && !lastfmLoved) return false;
+        if (listenbrainzConfigured && !listenbrainzLoved) return false;
+        return true;
+    }
+    readonly property bool isPartiallyLoved: !!(lastfmConfigured && listenbrainzConfigured && (lastfmLoved !== listenbrainzLoved))
+
     property int playtimeCounter: 0
     property int trackStartTime: 0
     property real lastPosition: 0
     property int pendingScrobbles: 0
+    property int pendingLastfmScrobbles: 0
+    property int pendingListenBrainzScrobbles: 0
     property string scrobblerPath: ""
     property string tempToken: ""
     property string currentTrackKey: ""
+    property bool lbTokenValidationRunning: false
+    property bool flushRunning: false
+
+    function updateAggregateScrobbleStatus() {
+        var statuses = [];
+        if (lastfmConfigured) statuses.push(lastfmScrobbleStatus);
+        if (listenbrainzConfigured) statuses.push(listenbrainzScrobbleStatus);
+
+        if (statuses.length === 0) {
+            scrobbleStatus = "idle";
+            return;
+        }
+        if (statuses.indexOf("sending") !== -1) {
+            scrobbleStatus = "sending";
+            return;
+        }
+
+        var hasAccepted = statuses.indexOf("accepted") !== -1;
+        var hasQueued = statuses.indexOf("queued") !== -1;
+        var hasError = statuses.indexOf("error") !== -1;
+
+        if (hasAccepted || hasQueued)
+            scrobbledThisTrack = true;
+
+        if (hasError && (hasAccepted || hasQueued)) {
+            scrobbleStatus = "partial";
+        } else if (hasError) {
+            scrobbleStatus = "error";
+        } else if (hasQueued) {
+            scrobbleStatus = "queued";
+        } else if (hasAccepted) {
+            scrobbleStatus = "accepted";
+        } else {
+            scrobbleStatus = "idle";
+        }
+    }
 
     onTrackTitleChanged: if (!updatingRemote) scheduleTrackChange()
     onTrackArtistChanged: if (!updatingRemote) scheduleTrackChange()
     onActivePlayerChanged: scheduleTrackChange()
     onApiKeyChanged: handleTrackChange(true)
     onUsernameChanged: handleTrackChange(true)
-    onShouldPublishMprisChanged: syncRemoteMprisBridge()
+    onLastfmConfiguredChanged: {
+        if (lastfmConfigured) {
+            if (hasUsableLocalTrack) {
+                updateLastFmNowPlaying();
+                checkLastFmTrackInfo();
+            }
+            flushQueue();
+        } else {
+            lastfmLoved = false;
+            lastfmScrobbleStatus = "idle";
+            lastfmScrobbleError = "";
+            updateAggregateScrobbleStatus();
+        }
+    }
+    onListenbrainzConfiguredChanged: {
+        if (listenbrainzConfigured) {
+            if (!listenbrainzUsername)
+                validateListenBrainzToken(true);
+            if (hasUsableLocalTrack) {
+                updateListenBrainzNowPlaying();
+                checkListenBrainzTrackInfo();
+            }
+            flushQueue();
+        } else {
+            listenbrainzLoved = false;
+            listenbrainzScrobbleStatus = "idle";
+            listenbrainzScrobbleError = "";
+            lbRecordingMbid = "";
+            lbRecordingMsid = "";
+            lbReleaseMbid = "";
+            lbArtistMbids = [];
+            lbAlbum = "";
+            updateAggregateScrobbleStatus();
+        }
+    }
+    onListenbrainzUsernameChanged: {
+        if (listenbrainzConfigured && listenbrainzUsername && hasUsableLocalTrack)
+            checkListenBrainzTrackInfo();
+    }
+    onShouldPublishMprisChanged: {
+        if (shouldPublishMpris && mprisBridgeAvailable && !mprisBridgeProcess.running) {
+            bridgeRestartAttempts = 0;
+            mprisBridgeProcess.running = true;
+        }
+        syncRemoteMprisBridge();
+    }
     onTrackArtUrlChanged: syncRemoteMprisBridge()
     onTrackAlbumChanged: {
         syncRemoteMprisBridge();
@@ -254,12 +404,14 @@ PluginComponent {
         root.mprisBridgePath = bridgeUrl.indexOf("file://") === 0 ? bridgeUrl.substring(7) : bridgeUrl;
         bridgeCheckProcess.running = true;
         scheduleTrackChange();
+        // Auto-discover ListenBrainz username if token is configured without username
+        if (listenbrainzConfigured && !listenbrainzUsername)
+            validateListenBrainzToken(true);
         // Drain anything that was queued while DMS was closed / offline.
         refreshQueueCount();
         flushQueue();
     }
 
-    // Periodically retry sending any scrobbles queued while offline.
     Timer {
         id: trackChangeTimer
         interval: 250
@@ -272,6 +424,7 @@ PluginComponent {
         onTriggered: root.checkTrackInfo()
     }
 
+    // Periodically retry sending any scrobbles queued while offline.
     Timer {
         id: flushTimer
         interval: 300000 // 5 minutes
@@ -281,49 +434,119 @@ PluginComponent {
     }
 
     // Protocol-independent fallback for Chromecast, AirPlay, DLNA, Spotify
-    // Connect and other remote sessions. It only mirrors an existing Last.fm
+    // Connect and other remote sessions. It only mirrors an existing
     // Now Playing report; it never scrobbles that report again.
     Timer {
         interval: root.remoteNowPlaying ? 60000 : Math.min(600000, 60000 * Math.pow(2, root.remoteMisses))
         repeat: true
-        running: !!(root.remoteFallbackEnabled && root.apiKey && root.username
-            && !root.hasUsableLocalTrack)
+        running: !!(root.remoteFallbackEnabled && !root.hasUsableLocalTrack
+            && (root.lastfmReadConfigured || (root.listenbrainzEnabled && root.listenbrainzUsername)))
         triggeredOnStart: true
         onTriggered: root.pollRemoteNowPlaying()
     }
 
-    function pollRemoteNowPlaying() {
-        if (remotePollRunning || !remoteFallbackEnabled || !apiKey || !username || !scrobblerPath) return;
-        remotePollRunning = true;
-        runScrobbler(["recent-now-playing", apiKey, username], function(code, output) {
-            remotePollRunning = false;
-            var json = parseScrobblerResult(code, output, "Last.fm Now Playing");
+    function applyRemoteNowPlaying(serviceName, json) {
+        var oldKey = remoteService + "\n" + remoteArtist + "\n" + remoteTitle;
+        updatingRemote = true;
+        remoteNowPlaying = json.now_playing === true;
+        remoteService = remoteNowPlaying ? serviceName : "";
+        remoteArtist = remoteNowPlaying ? (json.artist || "") : "";
+        remoteTitle = remoteNowPlaying ? (json.track || "") : "";
+        remoteAlbum = remoteNowPlaying ? (json.album || "") : "";
+        remoteArtUrl = remoteNowPlaying ? (json.album_art || "") : "";
+        remoteTrackUrl = remoteNowPlaying ? (json.url || "") : "";
+        remoteRecordingMbid = remoteNowPlaying ? (json.recording_mbid || "") : "";
+        remoteRecordingMsid = remoteNowPlaying ? (json.recording_msid || "") : "";
+        remoteLoved = remoteNowPlaying && json.loved === true;
+        updatingRemote = false;
+
+        syncRemoteMprisBridge();
+        var newKey = remoteService + "\n" + remoteArtist + "\n" + remoteTitle;
+        if (isRemoteSource && oldKey !== newKey) {
+            handleTrackChange();
+        } else if (isRemoteSource) {
+            if (serviceName === "lastfm") lastfmLoved = remoteLoved;
+            else if (serviceName === "listenbrainz") {
+                listenbrainzLoved = remoteLoved;
+                lbRecordingMbid = remoteRecordingMbid;
+                lbRecordingMsid = remoteRecordingMsid;
+            }
+            if (remoteArtUrl) lastfmArtUrl = remoteArtUrl;
+            if (remoteAlbum) lastfmAlbum = remoteAlbum;
+        } else if (!hasTrack) {
+            handleTrackChange();
+        }
+    }
+
+    function pollListenBrainzRemote(onDone) {
+        if (!listenbrainzEnabled || !listenbrainzUsername) {
+            if (onDone) onDone(false);
+            return;
+        }
+        runScrobbler([
+            "lb-recent-now-playing",
+            listenbrainzUsername,
+            listenbrainzToken,
+            listenbrainzUrl
+        ], function(code, output) {
+            var json = parseScrobblerResult(code, output, "ListenBrainz Now Playing");
             if (json.error !== undefined) {
-                remoteMisses = Math.min(4, remoteMisses + 1);
-                dlog("recent Now Playing failed:", json.message || json.error);
+                dlog("LB recent Now Playing failed:", json.message || json.error);
+                if (onDone) onDone(false, true);
                 return;
             }
-            remoteMisses = json.now_playing === true ? 0 : Math.min(4, remoteMisses + 1);
-            var oldKey = remoteArtist + "\n" + remoteTitle;
-            updatingRemote = true;
-            remoteNowPlaying = json.now_playing === true;
-            remoteArtist = remoteNowPlaying ? (json.artist || "") : "";
-            remoteTitle = remoteNowPlaying ? (json.track || "") : "";
-            remoteAlbum = remoteNowPlaying ? (json.album || "") : "";
-            remoteArtUrl = remoteNowPlaying ? (json.album_art || "") : "";
-            remoteTrackUrl = remoteNowPlaying ? (json.url || "") : "";
-            remoteLoved = remoteNowPlaying && json.loved === true;
-            updatingRemote = false;
-            syncRemoteMprisBridge();
-            var newKey = remoteArtist + "\n" + remoteTitle;
-            if (isRemoteSource && oldKey !== newKey) handleTrackChange();
-            else if (isRemoteSource) {
-                isLoved = remoteLoved;
-                if (remoteArtUrl) lastfmArtUrl = remoteArtUrl;
-                if (remoteAlbum) lastfmAlbum = remoteAlbum;
+            if (json.now_playing === true) {
+                applyRemoteNowPlaying("listenbrainz", json);
+                if (onDone) onDone(true, false);
+                return;
             }
-            else if (!hasTrack) handleTrackChange();
+            if (onDone) onDone(false, false);
         });
+    }
+
+    function pollRemoteNowPlaying() {
+        if (remotePollRunning || !remoteFallbackEnabled || !scrobblerPath) return;
+        var canLfm = lastfmReadConfigured;
+        var canLb = !!(listenbrainzEnabled && listenbrainzUsername);
+        if (!canLfm && !canLb) return;
+
+        remotePollRunning = true;
+
+        function finish(found, hadError) {
+            remotePollRunning = false;
+            if (found) {
+                remoteMisses = 0;
+            } else {
+                remoteMisses = Math.min(4, remoteMisses + 1);
+                if (!hadError)
+                    applyRemoteNowPlaying("", { "now_playing": false });
+            }
+        }
+
+        if (canLfm) {
+            runScrobbler(["recent-now-playing", apiKey, username], function(code, output) {
+                var json = parseScrobblerResult(code, output, "Last.fm Now Playing");
+                if (json.error === undefined && json.now_playing === true) {
+                    applyRemoteNowPlaying("lastfm", json);
+                    finish(true, false);
+                    return;
+                }
+                if (json.error !== undefined)
+                    dlog("Last.fm recent Now Playing failed:", json.message || json.error);
+
+                if (canLb) {
+                    pollListenBrainzRemote(function(lbFound, lbErr) {
+                        finish(lbFound, !!lbErr && json.error !== undefined);
+                    });
+                } else {
+                    finish(false, json.error !== undefined);
+                }
+            });
+        } else {
+            pollListenBrainzRemote(function(lbFound, lbErr) {
+                finish(lbFound, !!lbErr);
+            });
+        }
     }
 
     function syncRemoteMprisBridge() {
@@ -353,7 +576,20 @@ PluginComponent {
         running: false
         onExited: function(exitCode) {
             root.mprisBridgeAvailable = exitCode === 0;
-            if (root.mprisBridgeAvailable) mprisBridgeProcess.running = true;
+            if (root.mprisBridgeAvailable) {
+                root.bridgeRestartAttempts = 0;
+                mprisBridgeProcess.running = true;
+            }
+        }
+    }
+
+    Timer {
+        id: bridgeRestartTimer
+        interval: 5000
+        repeat: false
+        onTriggered: {
+            if (root.mprisBridgeAvailable && root.shouldPublishMpris && !mprisBridgeProcess.running)
+                mprisBridgeProcess.running = true;
         }
     }
 
@@ -362,29 +598,53 @@ PluginComponent {
         command: [root.mprisBridgePath]
         stdinEnabled: true
         running: false
-        onStarted: root.syncRemoteMprisBridge()
-        onExited: root.mprisBridgeAvailable = false
+        onStarted: {
+            root.bridgeRestartAttempts = 0;
+            root.syncRemoteMprisBridge();
+        }
+        onExited: function(exitCode) {
+            root.dlog("mpris-bridge exited with code:", exitCode);
+            if (root.shouldPublishMpris && root.mprisBridgeAvailable && root.bridgeRestartAttempts < 3) {
+                root.bridgeRestartAttempts += 1;
+                bridgeRestartTimer.restart();
+            } else {
+                root.mprisBridgeAvailable = false;
+            }
+        }
     }
-
-
 
     function handleTrackChange(force) {
         var nextKey = hasTrack && trackArtist && trackTitle
-            ? (isRemoteSource ? "remote\n" : "local\n") + trackArtist.toLowerCase() + "\n" + trackTitle.toLowerCase()
+            ? (isRemoteSource ? ("remote:" + remoteService + "\n") : "local\n")
+              + trackArtist.toLowerCase() + "\n" + trackTitle.toLowerCase()
             : "";
         if (!force && nextKey && nextKey === currentTrackKey) {
             syncRemoteMprisBridge();
             return;
         }
         currentTrackKey = nextKey;
-        dlog("handleTrackChange called. activePlayer:", activePlayer ? activePlayer.identity : "null", "title:", trackTitle, "artist:", trackArtist, "configured:", apiKey ? "yes" : "no", "username:", username);
+        dlog("handleTrackChange called. activePlayer:", activePlayer ? activePlayer.identity : "null", "title:", trackTitle, "artist:", trackArtist, "lastfm:", lastfmConfigured ? "yes" : "no", "listenbrainz:", listenbrainzConfigured ? "yes" : "no");
         playtimeCounter = 0;
         scrobbledThisTrack = false;
         scrobbleAttemptedThisTrack = false;
+        lastfmScrobbleStatus = "idle";
+        listenbrainzScrobbleStatus = "idle";
+        lastfmScrobbleError = "";
+        listenbrainzScrobbleError = "";
         scrobbleStatus = "idle";
-        isLoved = false;
+
+        lastfmLoved = false;
+        listenbrainzLoved = false;
+        lovePending = false;
+
         lastfmArtUrl = "";
         lastfmAlbum = "";
+        lbAlbum = "";
+        lbRecordingMbid = "";
+        lbRecordingMsid = "";
+        lbReleaseMbid = "";
+        lbArtistMbids = [];
+
         lastPosition = 0;
         trackStartTime = Math.floor(Date.now() / 1000);
 
@@ -394,17 +654,25 @@ PluginComponent {
         }
 
         if (isRemoteSource) {
-            isLoved = remoteLoved;
-            lastfmArtUrl = remoteArtUrl;
-            lastfmAlbum = remoteAlbum;
-            dlog("using external Last.fm Now Playing fallback; scrobbling disabled to prevent duplicates");
+            if (remoteService === "listenbrainz") {
+                listenbrainzLoved = remoteLoved;
+                lbRecordingMbid = remoteRecordingMbid;
+                lbRecordingMsid = remoteRecordingMsid;
+                if (lastfmReadConfigured) checkLastFmTrackInfo();
+            } else {
+                lastfmLoved = remoteLoved;
+                lastfmArtUrl = remoteArtUrl;
+                lastfmAlbum = remoteAlbum;
+                if (listenbrainzConfigured) checkListenBrainzTrackInfo();
+            }
+            dlog("using external Now Playing fallback; scrobbling disabled to prevent duplicates");
             return;
         }
 
-        // 1. Update Now Playing on Last.fm
+        // 1. Update Now Playing on configured services
         updateNowPlaying();
 
-        // 2. Fetch track info from Last.fm to check if loved
+        // 2. Fetch track metadata & love status from configured services
         checkTrackInfo();
     }
 
@@ -424,13 +692,19 @@ PluginComponent {
     // while the same title/artist is loaded). MPRIS reports position in seconds.
     function checkForRepeat() {
         if (!activePlayer || !activePlayer.positionSupported) return;
+        if (typeof MprisController.refreshPosition === "function")
+            MprisController.refreshPosition(activePlayer);
         var pos = activePlayer.position;
         if (lastPosition > 15 && pos < 3) {
             dlog("detected track repeat (position", lastPosition.toFixed(1), "->", pos.toFixed(1), "), resetting scrobble state");
             playtimeCounter = 0;
             scrobbledThisTrack = false;
             scrobbleAttemptedThisTrack = false;
-            scrobbleStatus = "idle";
+            lastfmScrobbleStatus = "idle";
+            listenbrainzScrobbleStatus = "idle";
+            lastfmScrobbleError = "";
+            listenbrainzScrobbleError = "";
+            updateAggregateScrobbleStatus();
             trackStartTime = Math.floor(Date.now() / 1000);
             updateNowPlaying();
         }
@@ -438,7 +712,7 @@ PluginComponent {
     }
 
     // Seconds of playback required before this track scrobbles.
-    // 0 means the track is too short to scrobble (Last.fm guideline: skip < 30s).
+    // 0 means the track is too short to scrobble (Last.fm / LB guideline: skip < 30s).
     readonly property int scrobbleTargetSeconds: {
         var minLength = 30;
         if (trackLength > 0) {
@@ -489,9 +763,9 @@ PluginComponent {
         }
     }
 
-    function updateNowPlaying() {
-        if (!apiKey || !apiSecret || !sessionKey) return;
-        runScrobbler([
+    function updateLastFmNowPlaying() {
+        if (!lastfmConfigured || !trackArtist || !trackTitle) return;
+        var args = [
             "now-playing",
             apiKey,
             apiSecret,
@@ -499,96 +773,280 @@ PluginComponent {
             trackArtist,
             trackTitle,
             trackAlbum
-        ], function(code, output) {
+        ];
+        if (trackLength > 0) args.push(trackLength.toString());
+        runScrobbler(args, function(code, output) {
             var json = parseScrobblerResult(code, output, "Last.fm Now Playing update");
-            if (json.error === undefined && pendingScrobbles > 0)
+            if (json.error === undefined && pendingLastfmScrobbles > 0)
                 flushQueue();
         });
+    }
+
+    function updateListenBrainzNowPlaying() {
+        if (!listenbrainzConfigured || !trackArtist || !trackTitle) return;
+        var requestKey = currentTrackKey;
+        runScrobbler([
+            "lb-now-playing",
+            listenbrainzToken,
+            trackArtist,
+            trackTitle,
+            trackAlbum,
+            trackDurationMs.toString(),
+            playerIdentity,
+            listenbrainzUrl
+        ], function(code, output) {
+            var json = parseScrobblerResult(code, output, "ListenBrainz Now Playing update");
+            if (json.error !== undefined) {
+                dlog("LB now-playing failed:", json.message || json.error);
+                return;
+            }
+            if (requestKey === currentTrackKey && json.recording_msid) {
+                var hadMsid = !!lbRecordingMsid;
+                lbRecordingMsid = json.recording_msid;
+                if (!lbRecordingMbid && !hadMsid && listenbrainzUsername)
+                    checkListenBrainzTrackInfo();
+            }
+            if (pendingListenBrainzScrobbles > 0)
+                flushQueue();
+        });
+    }
+
+    function updateNowPlaying() {
+        updateLastFmNowPlaying();
+        updateListenBrainzNowPlaying();
     }
 
     function refreshQueueCount() {
         runScrobbler(["queue-count"], function(code, output) {
             var json = parseScrobblerResult(code, output, "Queue count");
-            if (json.error === undefined && json.count !== undefined)
+            if (json.error === undefined && json.count !== undefined) {
                 pendingScrobbles = json.count;
+                pendingLastfmScrobbles = json.lastfm !== undefined ? json.lastfm : json.count;
+                pendingListenBrainzScrobbles = json.listenbrainz !== undefined ? json.listenbrainz : 0;
+            }
         });
     }
 
     function flushQueue() {
-        if (!apiKey || !apiSecret || !sessionKey) return;
-        runScrobbler([
-            "flush-queue",
-            apiKey,
-            apiSecret,
-            sessionKey
-        ], function(code, output) {
-            var json = parseScrobblerResult(code, output, "Queue flush");
-            if (json.error !== undefined) {
-                dlog("queue flush failed:", json.message || json.error);
-                return;
+        if (flushRunning) return;
+        var doLfm = lastfmConfigured;
+        var doLb = listenbrainzConfigured;
+        if (!doLfm && !doLb) return;
+
+        flushRunning = true;
+        var remainingCalls = (doLfm ? 1 : 0) + (doLb ? 1 : 0);
+        var flushedParts = [];
+
+        function finishFlush() {
+            remainingCalls -= 1;
+            if (remainingCalls > 0) return;
+            flushRunning = false;
+            refreshQueueCount();
+            if (flushedParts.length > 0) {
+                ToastService.showInfo("Sent queued scrobbles to " + flushedParts.join(" & "));
             }
-            if (json.flushed > 0) {
-                dlog("flushed", json.flushed, "queued scrobbles, remaining", json.remaining);
-                ToastService.showInfo("Sent " + json.flushed + " queued scrobble(s) to Last.fm");
-            }
-            if (json.remaining !== undefined)
-                pendingScrobbles = json.remaining;
-        });
+        }
+
+        if (doLfm) {
+            runScrobbler([
+                "flush-queue",
+                apiKey,
+                apiSecret,
+                sessionKey
+            ], function(code, output) {
+                var json = parseScrobblerResult(code, output, "Last.fm queue flush");
+                if (json.flushed > 0) {
+                    dlog("flushed", json.flushed, "Last.fm queued scrobbles, remaining", json.remaining);
+                    flushedParts.push(json.flushed + " to Last.fm");
+                } else if (json.error !== undefined) {
+                    dlog("Last.fm queue flush failed:", json.message || json.error);
+                }
+                if (json.remaining !== undefined)
+                    pendingLastfmScrobbles = json.remaining;
+                if (json.total_remaining !== undefined)
+                    pendingScrobbles = json.total_remaining;
+                finishFlush();
+            });
+        }
+
+        if (doLb) {
+            runScrobbler([
+                "lb-flush-queue",
+                listenbrainzToken,
+                listenbrainzUrl
+            ], function(code, output) {
+                var json = parseScrobblerResult(code, output, "ListenBrainz queue flush");
+                if (json.flushed > 0) {
+                    dlog("flushed", json.flushed, "ListenBrainz queued listens, remaining", json.remaining);
+                    flushedParts.push(json.flushed + " to ListenBrainz");
+                } else if (json.error !== undefined) {
+                    dlog("ListenBrainz queue flush failed:", json.message || json.error);
+                }
+                if (json.remaining !== undefined)
+                    pendingListenBrainzScrobbles = json.remaining;
+                if (json.total_remaining !== undefined)
+                    pendingScrobbles = json.total_remaining;
+                finishFlush();
+            });
+        }
     }
 
-    function scrobbleTrack() {
-        if (!apiKey || !apiSecret || !sessionKey) return;
-        
+    function _dispatchScrobble(onlyRetryFailed) {
+        var wantLfm = lastfmConfigured && (!onlyRetryFailed || lastfmScrobbleStatus === "error" || lastfmScrobbleStatus === "idle");
+        var wantLb = listenbrainzConfigured && (!onlyRetryFailed || listenbrainzScrobbleStatus === "error" || listenbrainzScrobbleStatus === "idle");
+        if (!wantLfm && !wantLb) return;
+        if (!trackArtist || !trackTitle) return;
+
         var artist = trackArtist;
         var title = trackTitle;
         var album = trackAlbum;
-        var timestamp = trackStartTime.toString();
+        var timestamp = trackStartTime > 0 ? trackStartTime.toString() : Math.floor(Date.now() / 1000).toString();
+        var durationSec = trackLength;
+        var durationMs = trackDurationMs;
+        var player = playerIdentity;
+        var recMbid = lbRecordingMbid;
+        var relMbid = lbReleaseMbid;
+        var artMbids = (lbArtistMbids || []).join(",");
         var requestKey = currentTrackKey;
 
         scrobbleAttemptedThisTrack = true;
-        scrobbleStatus = "sending";
+        if (wantLfm) {
+            lastfmScrobbleStatus = "sending";
+            lastfmScrobbleError = "";
+        }
+        if (wantLb) {
+            listenbrainzScrobbleStatus = "sending";
+            listenbrainzScrobbleError = "";
+        }
+        updateAggregateScrobbleStatus();
 
-        runScrobbler([
-            "scrobble",
-            apiKey,
-            apiSecret,
-            sessionKey,
-            artist,
-            title,
-            timestamp,
-            album
-        ], function(code, output) {
-            var json = parseScrobblerResult(code, output, "Last.fm scrobble");
-            if (json.queued) {
-                pendingScrobbles = json.queue_size !== undefined ? json.queue_size : pendingScrobbles;
-                if (currentTrackKey === requestKey) {
-                    scrobbledThisTrack = true;
-                    scrobbleStatus = "queued";
-                }
-                ToastService.showInfo("Offline — scrobble queued: " + artist + " - " + title);
-            } else if (json.scrobbles && json.scrobbles["@attr"] && json.scrobbles["@attr"].accepted > 0) {
-                if (currentTrackKey === requestKey) {
-                    scrobbledThisTrack = true;
-                    scrobbleStatus = "accepted";
-                }
-                ToastService.showInfo("Scrobbled to Last.fm: " + artist + " - " + title);
+        var tracker = {
+            remaining: (wantLfm ? 1 : 0) + (wantLb ? 1 : 0),
+            accepted: [],
+            queued: [],
+            failed: []
+        };
+
+        function onTargetFinished() {
+            tracker.remaining -= 1;
+            if (tracker.remaining > 0) return;
+
+            refreshQueueCount();
+            if (tracker.accepted.length > 0)
                 flushQueue();
-            } else if (json.error !== undefined) {
-                if (currentTrackKey === requestKey)
-                    scrobbleStatus = "error";
-                ToastService.showError("Last.fm scrobble failed: " + (json.message || json.error));
-            } else {
-                if (currentTrackKey === requestKey)
-                    scrobbleStatus = "error";
-                ToastService.showError("Last.fm returned an unexpected scrobble response");
+
+            if (tracker.failed.length > 0) {
+                ToastService.showError("Scrobble failed (" + tracker.failed.join("; ") + ")");
+            } else if (tracker.queued.length > 0 && tracker.accepted.length === 0) {
+                ToastService.showInfo("Offline — queued for " + tracker.queued.join(" & ") + ": " + artist + " - " + title);
+            } else if (tracker.queued.length > 0 && tracker.accepted.length > 0) {
+                ToastService.showInfo("Scrobbled to " + tracker.accepted.join(" & ") + " (queued " + tracker.queued.join(" & ") + "): " + artist + " - " + title);
+            } else if (tracker.accepted.length > 0 && root.showNotifications) {
+                ToastService.showInfo("Scrobbled to " + tracker.accepted.join(" & ") + ": " + artist + " - " + title);
             }
-        });
+        }
+
+        if (wantLfm) {
+            var lfmArgs = [
+                "scrobble",
+                apiKey,
+                apiSecret,
+                sessionKey,
+                artist,
+                title,
+                timestamp,
+                album
+            ];
+            if (durationSec > 0) lfmArgs.push(durationSec.toString());
+
+            runScrobbler(lfmArgs, function(code, output) {
+                var json = parseScrobblerResult(code, output, "Last.fm scrobble");
+                if (json.queued) {
+                    if (currentTrackKey === requestKey) {
+                        lastfmScrobbleStatus = "queued";
+                        lastfmScrobbleError = "";
+                    }
+                    tracker.queued.push("Last.fm");
+                } else if (json.scrobbles && json.scrobbles["@attr"] && json.scrobbles["@attr"].accepted > 0) {
+                    if (currentTrackKey === requestKey) {
+                        lastfmScrobbleStatus = "accepted";
+                        lastfmScrobbleError = "";
+                    }
+                    tracker.accepted.push("Last.fm");
+                } else if (json.error !== undefined) {
+                    var lfmMsg = json.message || String(json.error);
+                    if (currentTrackKey === requestKey) {
+                        lastfmScrobbleStatus = "error";
+                        lastfmScrobbleError = lfmMsg;
+                    }
+                    tracker.failed.push("Last.fm: " + lfmMsg);
+                } else {
+                    if (currentTrackKey === requestKey) {
+                        lastfmScrobbleStatus = "error";
+                        lastfmScrobbleError = "Unexpected response";
+                    }
+                    tracker.failed.push("Last.fm: Unexpected response");
+                }
+                if (currentTrackKey === requestKey) updateAggregateScrobbleStatus();
+                onTargetFinished();
+            });
+        }
+
+        if (wantLb) {
+            runScrobbler([
+                "lb-scrobble",
+                listenbrainzToken,
+                artist,
+                title,
+                timestamp,
+                album,
+                durationMs.toString(),
+                player,
+                recMbid,
+                relMbid,
+                artMbids,
+                listenbrainzUrl
+            ], function(code, output) {
+                var json = parseScrobblerResult(code, output, "ListenBrainz scrobble");
+                if (json.queued) {
+                    if (currentTrackKey === requestKey) {
+                        listenbrainzScrobbleStatus = "queued";
+                        listenbrainzScrobbleError = "";
+                    }
+                    tracker.queued.push("ListenBrainz");
+                } else if (json.accepted === true || json.status === "ok") {
+                    if (currentTrackKey === requestKey) {
+                        listenbrainzScrobbleStatus = "accepted";
+                        listenbrainzScrobbleError = "";
+                    }
+                    tracker.accepted.push("ListenBrainz");
+                } else {
+                    var lbMsg = json.message || (json.error !== undefined ? String(json.error) : "Unexpected response");
+                    if (currentTrackKey === requestKey) {
+                        listenbrainzScrobbleStatus = "error";
+                        listenbrainzScrobbleError = lbMsg;
+                    }
+                    tracker.failed.push("ListenBrainz: " + lbMsg);
+                }
+                if (currentTrackKey === requestKey) updateAggregateScrobbleStatus();
+                onTargetFinished();
+            });
+        }
     }
 
-    function checkTrackInfo() {
-        if (!apiKey || !username) return;
+    function scrobbleTrack() {
+        _dispatchScrobble(false);
+    }
+
+    function retryScrobble() {
+        if (!hasUsableLocalTrack) return;
+        _dispatchScrobble(true);
+    }
+
+    function checkLastFmTrackInfo() {
+        if (!lastfmReadConfigured || !trackArtist || !trackTitle) return;
         var requestKey = currentTrackKey;
-        dlog("running get-info for:", trackArtist, "-", trackTitle);
+        dlog("running Last.fm get-info for:", trackArtist, "-", trackTitle);
         var args = [
             "get-info",
             apiKey,
@@ -600,17 +1058,17 @@ PluginComponent {
         if (youtubeArtEnabled)
             args.push("--youtube-art");
         runScrobbler(args, function(code, output) {
-            dlog("get-info exited with code:", code);
+            dlog("Last.fm get-info exited with code:", code);
             var json = parseScrobblerResult(code, output, "Last.fm track info");
             if (json.error !== undefined) {
-                dlog("get-info failed:", json.message || json.error);
+                dlog("Last.fm get-info failed:", json.message || json.error);
                 return;
             }
             if (requestKey !== currentTrackKey)
                 return;
             if (json.loved !== undefined) {
-                isLoved = json.loved;
-                dlog("loved state is:", isLoved);
+                lastfmLoved = json.loved;
+                dlog("Last.fm loved state is:", lastfmLoved);
             }
             if (json.album_art !== undefined) {
                 lastfmArtUrl = json.album_art;
@@ -622,58 +1080,156 @@ PluginComponent {
         });
     }
 
-    function loveCurrentTrack() {
-        if (!apiKey || !apiSecret || !sessionKey || !trackArtist || !trackTitle) {
-            ToastService.showError("Last.fm plugin is not configured or no track is playing.");
-            return;
-        }
-        var artist = trackArtist;
-        var title = trackTitle;
+    function checkListenBrainzTrackInfo() {
+        if (!listenbrainzConfigured || !trackArtist || !trackTitle) return;
         var requestKey = currentTrackKey;
+        dlog("running ListenBrainz get-info for:", trackArtist, "-", trackTitle);
         runScrobbler([
-            "love",
-            apiKey,
-            apiSecret,
-            sessionKey,
-            artist,
-            title
+            "lb-get-info",
+            listenbrainzToken,
+            listenbrainzUsername,
+            trackArtist,
+            trackTitle,
+            trackAlbum,
+            lbRecordingMsid,
+            listenbrainzUrl
         ], function(code, output) {
-            var json = parseScrobblerResult(code, output, "Last.fm love");
+            var json = parseScrobblerResult(code, output, "ListenBrainz track info");
             if (json.error !== undefined) {
-                ToastService.showError("Last.fm love failed: " + (json.message || json.error));
-            } else {
-                if (currentTrackKey === requestKey)
-                    isLoved = true;
-                ToastService.showInfo("Loved: " + artist + " - " + title);
+                dlog("LB get-info failed:", json.message || json.error);
+                return;
             }
+            if (requestKey !== currentTrackKey)
+                return;
+            if (json.loved !== undefined) {
+                listenbrainzLoved = json.loved === true;
+                dlog("LB loved state is:", listenbrainzLoved);
+            }
+            if (json.recording_mbid)
+                lbRecordingMbid = json.recording_mbid;
+            if (json.recording_msid && !lbRecordingMsid)
+                lbRecordingMsid = json.recording_msid;
+            if (json.release_mbid)
+                lbReleaseMbid = json.release_mbid;
+            if (json.artist_mbids && json.artist_mbids.length !== undefined)
+                lbArtistMbids = json.artist_mbids;
+            if (json.album && !lbAlbum)
+                lbAlbum = json.album;
         });
     }
 
-    function unloveCurrentTrack() {
-        if (!apiKey || !apiSecret || !sessionKey || !trackArtist || !trackTitle) {
-            ToastService.showError("Last.fm plugin is not configured or no track is playing.");
+    function checkTrackInfo() {
+        checkLastFmTrackInfo();
+        checkListenBrainzTrackInfo();
+    }
+
+    function _setLoveState(loving, includeLastFm, includeListenBrainz) {
+        if (!trackArtist || !trackTitle) {
+            ToastService.showError("No track is currently playing.");
             return;
         }
+        var doLfm = includeLastFm && lastfmConfigured;
+        var doLb = includeListenBrainz && listenbrainzConfigured;
+        if (!doLfm && !doLb) {
+            ToastService.showError("No scrobbling service is configured in DMS Last.fm Scrobbler.");
+            return;
+        }
+        if (lovePending) return;
+
+        lovePending = true;
         var artist = trackArtist;
         var title = trackTitle;
+        var album = trackAlbum;
+        var mbid = lbRecordingMbid;
+        var msid = lbRecordingMsid;
         var requestKey = currentTrackKey;
-        runScrobbler([
-            "unlove",
-            apiKey,
-            apiSecret,
-            sessionKey,
-            artist,
-            title
-        ], function(code, output) {
-            var json = parseScrobblerResult(code, output, "Last.fm unlove");
-            if (json.error !== undefined) {
-                ToastService.showError("Last.fm unlove failed: " + (json.message || json.error));
+        var actionWord = loving ? "Loved" : "Unloved";
+
+        var tracker = {
+            remaining: (doLfm ? 1 : 0) + (doLb ? 1 : 0),
+            succeeded: [],
+            failed: []
+        };
+
+        function finishLove() {
+            tracker.remaining -= 1;
+            if (tracker.remaining > 0) return;
+
+            lovePending = false;
+            if (tracker.failed.length > 0 && tracker.succeeded.length === 0) {
+                ToastService.showError((loving ? "Love" : "Unlove") + " failed: " + tracker.failed.join("; "));
+            } else if (tracker.failed.length > 0) {
+                ToastService.showError(actionWord + " on " + tracker.succeeded.join(" & ") + ", failed on " + tracker.failed.join("; "));
             } else {
-                if (currentTrackKey === requestKey)
-                    isLoved = false;
-                ToastService.showInfo("Unloved: " + artist + " - " + title);
+                var targetSuffix = tracker.succeeded.length > 1 ? " (" + tracker.succeeded.join(" & ") + ")" : "";
+                ToastService.showInfo(actionWord + targetSuffix + ": " + artist + " - " + title);
             }
-        });
+        }
+
+        if (doLfm) {
+            runScrobbler([
+                loving ? "love" : "unlove",
+                apiKey,
+                apiSecret,
+                sessionKey,
+                artist,
+                title
+            ], function(code, output) {
+                var json = parseScrobblerResult(code, output, loving ? "Last.fm love" : "Last.fm unlove");
+                if (json.error !== undefined) {
+                    tracker.failed.push("Last.fm: " + (json.message || json.error));
+                } else {
+                    if (currentTrackKey === requestKey) {
+                        lastfmLoved = loving;
+                        if (isRemoteSource && remoteService === "lastfm")
+                            remoteLoved = loving;
+                    }
+                    tracker.succeeded.push("Last.fm");
+                }
+                finishLove();
+            });
+        }
+
+        if (doLb) {
+            runScrobbler([
+                loving ? "lb-love" : "lb-unlove",
+                listenbrainzToken,
+                listenbrainzUsername,
+                artist,
+                title,
+                album,
+                mbid,
+                msid,
+                listenbrainzUrl
+            ], function(code, output) {
+                var json = parseScrobblerResult(code, output, loving ? "ListenBrainz love" : "ListenBrainz unlove");
+                if (json.error !== undefined) {
+                    tracker.failed.push("ListenBrainz: " + (json.message || json.error));
+                } else {
+                    if (currentTrackKey === requestKey) {
+                        listenbrainzLoved = loving;
+                        if (json.recording_mbid) lbRecordingMbid = json.recording_mbid;
+                        if (json.recording_msid) lbRecordingMsid = json.recording_msid;
+                        if (isRemoteSource && remoteService === "listenbrainz")
+                            remoteLoved = loving;
+                    }
+                    tracker.succeeded.push("ListenBrainz");
+                }
+                finishLove();
+            });
+        }
+    }
+
+    function loveCurrentTrack() {
+        _setLoveState(true, true, true);
+    }
+
+    function unloveCurrentTrack() {
+        _setLoveState(false, true, true);
+    }
+
+    function loveListenBrainzOnly() {
+        _setLoveState(true, false, true);
     }
 
     function toggleLoveCurrentTrack() {
@@ -684,7 +1240,7 @@ PluginComponent {
         }
     }
 
-    // Auth flows triggered from Settings
+    // Auth & account helpers triggered from Settings
     function startAuthFlow() {
         if (!apiKey || !apiSecret) {
             ToastService.showError("API Key and Shared Secret are required for authentication.");
@@ -724,11 +1280,63 @@ PluginComponent {
                 pluginService.savePluginData(pluginId, "sessionKey", json.session_key);
                 pluginService.savePluginData(pluginId, "username", json.username);
                 tempToken = "";
-                ToastService.showInfo("Successfully authenticated as " + json.username + "!");
+                ToastService.showInfo("Successfully authenticated on Last.fm as " + json.username + "!");
             } else {
                 ToastService.showError("Session exchange failed: " + (json.message || json.error || "Unknown"));
             }
         });
+    }
+
+    function disconnectLastFm() {
+        if (!pluginService) return;
+        tempToken = "";
+        pluginService.savePluginData(pluginId, "sessionKey", "");
+        pluginService.savePluginData(pluginId, "username", "");
+        lastfmLoved = false;
+        ToastService.showInfo("Disconnected Last.fm session.");
+    }
+
+    function validateListenBrainzToken(silent) {
+        if (!listenbrainzToken) {
+            if (!silent)
+                ToastService.showError("Enter your ListenBrainz User Token first.");
+            return;
+        }
+        if (lbTokenValidationRunning) return;
+        lbTokenValidationRunning = true;
+        if (!silent)
+            ToastService.showInfo("Validating ListenBrainz token...");
+        runScrobbler([
+            "lb-validate-token",
+            listenbrainzToken,
+            listenbrainzUrl
+        ], function(code, output) {
+            lbTokenValidationRunning = false;
+            var json = parseScrobblerResult(code, output, "ListenBrainz token validation");
+            if (json.valid === true && json.username) {
+                if (pluginService)
+                    pluginService.savePluginData(pluginId, "listenbrainzUsername", json.username);
+                if (!silent)
+                    ToastService.showInfo("ListenBrainz connected as " + json.username + "!");
+            } else {
+                if (pluginService && json.valid === false)
+                    pluginService.savePluginData(pluginId, "listenbrainzUsername", "");
+                if (!silent)
+                    ToastService.showError("ListenBrainz token error: " + (json.message || json.error || "Invalid token"));
+            }
+        });
+    }
+
+    function disconnectListenBrainz() {
+        if (!pluginService) return;
+        pluginService.savePluginData(pluginId, "listenbrainzToken", "");
+        pluginService.savePluginData(pluginId, "listenbrainzUsername", "");
+        listenbrainzLoved = false;
+        lbRecordingMbid = "";
+        lbRecordingMsid = "";
+        lbReleaseMbid = "";
+        lbArtistMbids = [];
+        ToastService.showInfo("Cleared ListenBrainz credentials.");
     }
 
     // IPC Interface
@@ -754,14 +1362,42 @@ PluginComponent {
             return "Toggled love: " + (oldState ? "Unloving" : "Loving") + " " + root.trackArtist + " - " + root.trackTitle;
         }
 
-        function status(): string {
+        function loveListenBrainz(): string {
             if (!hasTrack || !trackTitle) return "No track playing";
+            if (!root.listenbrainzConfigured) return "ListenBrainz is not configured";
+            root.loveListenBrainzOnly();
+            return "Loving on ListenBrainz: " + root.trackArtist + " - " + root.trackTitle;
+        }
+
+        function refresh(): string {
+            if (!hasTrack || !trackTitle) return "No track playing";
+            root.checkTrackInfo();
+            return "Refreshing metadata: " + root.trackArtist + " - " + root.trackTitle;
+        }
+
+        function flushQueue(): string {
+            root.flushQueue();
+            return "Flushing offline queue (" + root.pendingScrobbles + " pending)";
+        }
+
+        function status(): string {
+            if (!hasTrack || !trackTitle) {
+                return "No track playing" + (root.pendingScrobbles > 0 ? " (" + root.pendingScrobbles + " queued)" : "");
+            }
+            var parts = [];
+            if (root.lastfmConfigured)
+                parts.push("Last.fm: " + root.lastfmScrobbleStatus + (root.lastfmLoved ? " ♥" : ""));
+            if (root.listenbrainzConfigured)
+                parts.push("LB: " + root.listenbrainzScrobbleStatus + (root.listenbrainzLoved ? " ♥" : ""));
+            var svcSummary = parts.length > 0 ? " | " + parts.join(", ") : "";
             return "Playing: " + root.trackArtist + " - " + root.trackTitle +
                    " [" + sourceLabel + "]" +
-                   " (Loved: " + root.isLoved + 
-                   ", Scrobbled: " + root.scrobbledThisTrack + 
+                   " (Loved: " + root.isLoved +
+                   ", Scrobbled: " + root.scrobbledThisTrack +
                    ", Delivery: " + root.scrobbleStatus +
-                   ", Scrobble source: " + (canScrobbleCurrent ? "this plugin" : "external") + ")";
+                   ", Queued: " + root.pendingScrobbles +
+                   ", Scrobble source: " + (canScrobbleCurrent ? "this plugin" : "external") +
+                   svcSummary + ")";
         }
 
         function currentTrackJson(): string {
@@ -772,6 +1408,14 @@ PluginComponent {
                 "album": root.trackAlbum,
                 "artwork": root.trackArtUrl,
                 "loved": root.isLoved,
+                "lastfmLoved": root.lastfmLoved,
+                "listenbrainzLoved": root.listenbrainzLoved,
+                "lastfmConfigured": root.lastfmConfigured,
+                "listenbrainzConfigured": root.listenbrainzConfigured,
+                "recordingMbid": root.lbRecordingMbid,
+                "recordingMsid": root.lbRecordingMsid,
+                "releaseMbid": root.lbReleaseMbid,
+                "durationMs": root.trackDurationMs,
                 "source": root.sourceLabel,
                 "isLocal": root.hasUsableLocalTrack
             });
@@ -789,23 +1433,58 @@ PluginComponent {
     Component {
         id: processComponent
         Process {
+            id: procItem
             property var procCommand: []
             property var procArgs: []
             property var callback: null
             property string outputBuffer: ""
+            property string stderrBuffer: ""
+            property bool finished: false
+
             command: procCommand
             stdinEnabled: true
-            stdout: SplitParser { 
+
+            stdout: SplitParser {
                 splitMarker: ""
                 onRead: function(data) {
-                    outputBuffer += data;
+                    procItem.outputBuffer += data;
                 }
             }
+
+            stderr: SplitParser {
+                splitMarker: ""
+                onRead: function(data) {
+                    procItem.stderrBuffer += data;
+                }
+            }
+
+            Timer {
+                id: timeoutTimer
+                interval: 30000
+                repeat: false
+                running: procItem.running
+                onTriggered: {
+                    if (procItem.finished) return;
+                    procItem.finished = true;
+                    procItem.running = false;
+                    root.dlog("helper process timed out");
+                    if (procItem.callback)
+                        procItem.callback(124, JSON.stringify({ "error": -1, "message": "Scrobbler helper timed out" }));
+                    procItem.destroy();
+                }
+            }
+
             onStarted: write(JSON.stringify({ "args": procArgs }) + "\n")
+
             onExited: function(exitCode) {
-                root.dlog("process exited with code:", exitCode, "buffered output length:", outputBuffer.length);
-                if (callback) callback(exitCode, outputBuffer);
-                destroy();
+                if (procItem.finished) return;
+                procItem.finished = true;
+                timeoutTimer.stop();
+                root.dlog("process exited with code:", exitCode, "buffered output length:", procItem.outputBuffer.length);
+                if (procItem.stderrBuffer.length > 0)
+                    root.dlog("helper stderr:", procItem.stderrBuffer.trim());
+                if (procItem.callback) procItem.callback(exitCode, procItem.outputBuffer);
+                procItem.destroy();
             }
         }
     }

@@ -11,7 +11,7 @@ PluginComponent {
     id: root
     readonly property int barLabelSize: Theme.barTextSize(barThickness, barConfig ? barConfig.fontScale : undefined, barConfig ? barConfig.maximizeWidgetText : undefined)
 
-    popoutWidth: 280
+    popoutWidth: 304
     readonly property var service: (pluginService && pluginId)
         ? (pluginService.pluginDaemonInstances[pluginId] || pluginService.pluginInstances[pluginId])
         : null
@@ -19,6 +19,33 @@ PluginComponent {
     readonly property bool isLoved: service ? service.isLoved : false
     readonly property bool hasActiveMedia: !!(service && service.hasTrack && service.trackTitle)
     readonly property string trackDisplay: service ? service.trackArtist + " - " + service.trackTitle : ""
+
+    // Control Center integration
+    ccWidgetIcon: root.isLoved ? "favorite" : "music_note"
+    ccWidgetPrimaryText: root.hasActiveMedia ? root.trackDisplay : "Scrobbler"
+    ccWidgetSecondaryText: {
+        if (!service) return "Inactive";
+        if (root.hasActiveMedia) {
+            if (service.isPartiallyLoved) return "Loved (1/2)";
+            if (root.isLoved) return "Loved";
+            if (service.scrobbleStatus === "accepted") return "Scrobbled";
+            if (service.scrobbleStatus === "queued") return "Queued";
+            if (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial") return "Delivery error";
+            return service.sourceLabel;
+        }
+        if (service.pendingScrobbles > 0)
+            return service.pendingScrobbles + " queued";
+        if (service.anyServiceConfigured)
+            return "Ready";
+        return "Not configured";
+    }
+    ccWidgetIsActive: !!(root.hasActiveMedia && (root.isLoved || (service && service.scrobbledThisTrack)))
+    onCcWidgetToggled: {
+        if (root.hasActiveMedia)
+            root.toggleLove();
+        else if (service && service.pendingScrobbles > 0)
+            service.flushQueue();
+    }
 
     // Vertical-bar tooltip Y offset, mirroring DMS's native bar widgets:
     // when the vertical bar sits below a top bar (parentScreen.y > 0), shift down.
@@ -31,16 +58,66 @@ PluginComponent {
         return 0;
     }
 
-    readonly property bool isCavaActive: {
-        if (!CavaService || !CavaService.values || CavaService.values.length === 0) return false;
-        for (var i = 0; i < CavaService.values.length; i++) {
-            if (CavaService.values[i] > 0) return true;
-        }
-        return false;
-    }
-
     function toggleLove() {
         if (service) service.toggleLoveCurrentTrack();
+    }
+
+    function openLastFmArtist() {
+        if (!service || !service.trackArtist) return;
+        Qt.openUrlExternally("https://www.last.fm/music/" + encodeURIComponent(service.trackArtist).replace(/%20/g, "+"));
+    }
+
+    function openLastFmTrack() {
+        if (!service || !service.trackArtist || !service.trackTitle) return;
+        Qt.openUrlExternally("https://www.last.fm/music/"
+            + encodeURIComponent(service.trackArtist).replace(/%20/g, "+")
+            + "/_/" + encodeURIComponent(service.trackTitle).replace(/%20/g, "+"));
+    }
+
+    function openListenBrainzProfile() {
+        if (!service) return;
+        if (service.listenbrainzUsername) {
+            Qt.openUrlExternally("https://listenbrainz.org/user/" + encodeURIComponent(service.listenbrainzUsername) + "/");
+        } else {
+            Qt.openUrlExternally("https://listenbrainz.org/");
+        }
+    }
+
+    function openListenBrainzTrack() {
+        if (!service) return;
+        if (service.lbRecordingMbid) {
+            Qt.openUrlExternally("https://musicbrainz.org/recording/" + encodeURIComponent(service.lbRecordingMbid));
+        } else if (service.trackArtist && service.trackTitle) {
+            var q = service.trackArtist + " " + service.trackTitle;
+            Qt.openUrlExternally("https://musicbrainz.org/search?type=recording&query=" + encodeURIComponent(q));
+        } else {
+            openListenBrainzProfile();
+        }
+    }
+
+    function tooltipSummary() {
+        if (!service) return "";
+        var lines = [root.trackDisplay];
+        if (service.trackAlbum)
+            lines.push(service.trackAlbum);
+
+        var loveLabel = "Not loved";
+        if (service.isPartiallyLoved) {
+            loveLabel = service.lastfmLoved ? "Loved on Last.fm only" : "Loved on ListenBrainz only";
+        } else if (root.isLoved) {
+            loveLabel = "Loved";
+        }
+
+        var statusLabel = "";
+        if (service.scrobbleStatus === "accepted") statusLabel = " · Scrobbled";
+        else if (service.scrobbleStatus === "queued") statusLabel = " · Queued offline";
+        else if (service.scrobbleStatus === "partial") statusLabel = " · Partial scrobble";
+        else if (service.scrobbleStatus === "error") statusLabel = " · Scrobble failed";
+        if (service.pendingScrobbles > 0)
+            statusLabel += " · " + service.pendingScrobbles + " queued";
+
+        lines.push(loveLabel + statusLabel);
+        return lines.join("\n");
     }
 
     // Run a named pill action (configured per mouse button in settings).
@@ -57,16 +134,19 @@ PluginComponent {
             service.checkTrackInfo();
             break;
         case "lastfm_artist":
-            if (service.trackArtist && service.trackArtist.length > 0) {
-                Qt.openUrlExternally("https://www.last.fm/music/" + encodeURIComponent(service.trackArtist).replace(/%20/g, "+"));
-            }
+            openLastFmArtist();
             break;
         case "lastfm_track":
-            if (service.trackArtist && service.trackTitle) {
-                Qt.openUrlExternally("https://www.last.fm/music/"
-                    + encodeURIComponent(service.trackArtist).replace(/%20/g, "+")
-                    + "/_/" + encodeURIComponent(service.trackTitle).replace(/%20/g, "+"));
-            }
+            openLastFmTrack();
+            break;
+        case "listenbrainz_profile":
+            openListenBrainzProfile();
+            break;
+        case "listenbrainz_track":
+            openListenBrainzTrack();
+            break;
+        case "flush_queue":
+            service.flushQueue();
             break;
         case "none":
         default:
@@ -81,271 +161,787 @@ PluginComponent {
         else if (button === Qt.RightButton) doAction(service.pillRightAction);
     }
 
+    function statusIconName(status) {
+        switch (status) {
+        case "accepted": return "check_circle";
+        case "queued": return "schedule";
+        case "sending": return "sync";
+        case "error": return "error";
+        default: return "radio_button_unchecked";
+        }
+    }
+
+    function statusIconColor(status) {
+        switch (status) {
+        case "accepted": return Theme.success;
+        case "queued": return Theme.warning;
+        case "sending": return Theme.primary;
+        case "error": return Theme.error;
+        default: return Theme.surfaceVariantText;
+        }
+    }
+
+    ccDetailContent: Component {
+        Rectangle {
+            id: ccDetailRoot
+            implicitHeight: ccCol.implicitHeight + Theme.spacingM * 2
+            radius: Theme.cornerRadius
+            color: Theme.surfaceContainerHigh
+
+            Column {
+                id: ccCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spacingM
+                spacing: Theme.spacingS
+
+                StyledText {
+                    width: parent.width
+                    text: root.hasActiveMedia ? root.service.trackTitle : "Nothing playing"
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.weight: Font.Bold
+                    color: Theme.surfaceText
+                    elide: Text.ElideRight
+                }
+
+                StyledText {
+                    width: parent.width
+                    visible: root.hasActiveMedia && !!(root.service && root.service.trackArtist)
+                    text: root.service ? (root.service.trackArtist + (root.service.trackAlbum ? " · " + root.service.trackAlbum : "")) : ""
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                    elide: Text.ElideRight
+                }
+
+                StyledText {
+                    width: parent.width
+                    font.pixelSize: Theme.fontSizeSmall - 1
+                    color: Theme.surfaceVariantText
+                    text: {
+                        if (!root.service) return "";
+                        var bits = [];
+                        if (root.service.lastfmConfigured)
+                            bits.push("Last.fm: " + (root.service.username || "ok") + (root.service.lastfmLoved ? " ♥" : ""));
+                        if (root.service.listenbrainzConfigured)
+                            bits.push("LB: " + (root.service.listenbrainzUsername || "ok") + (root.service.listenbrainzLoved ? " ♥" : ""));
+                        if (bits.length === 0) return "Configure Last.fm or ListenBrainz in plugin settings.";
+                        if (root.service.pendingScrobbles > 0)
+                            bits.push(root.service.pendingScrobbles + " queued");
+                        return bits.join(" · ");
+                    }
+                    wrapMode: Text.WordWrap
+                }
+
+                Row {
+                    spacing: Theme.spacingS
+
+                    DankButton {
+                        text: root.isLoved ? "Unlove" : "Love"
+                        enabled: root.hasActiveMedia && !(root.service && root.service.lovePending)
+                        onClicked: root.toggleLove()
+                    }
+
+                    DankButton {
+                        text: (root.service && root.service.scrobbleStatus === "error") ? "Retry" : "Refresh"
+                        enabled: root.hasActiveMedia || !!(root.service && root.service.pendingScrobbles > 0)
+                        onClicked: {
+                            if (!root.service) return;
+                            if (root.service.scrobbleStatus === "error" || root.service.scrobbleStatus === "partial")
+                                root.service.retryScrobble();
+                            else if (root.hasActiveMedia)
+                                root.service.checkTrackInfo();
+                            else
+                                root.service.flushQueue();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     popoutContent: Component {
         PopoutComponent {
             id: popout
-            headerText: "DMS Last.fm Scrobbler"
+            headerText: "DMS Scrobbler"
             showCloseButton: true
 
             Column {
                 width: parent.width - Theme.spacingM * 2
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingM
-                topPadding: Theme.spacingM
+                topPadding: Theme.spacingS
                 bottomPadding: Theme.spacingM
 
-                // 1. Album Cover Art (Large, Centered)
-                Rectangle {
-                    width: 180
-                    height: 180
+                // Empty State when no media is active
+                StyledRect {
+                    visible: !root.hasActiveMedia
+                    width: parent.width
+                    height: emptyCol.implicitHeight + Theme.spacingL * 2
                     radius: Theme.cornerRadius
-                    color: Theme.surfaceVariant
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    color: Theme.surfaceContainer
 
-                    Image {
-                        id: popoutArt
-                        anchors.fill: parent
-                        source: service ? service.trackArtUrl : ""
-                        fillMode: Image.PreserveAspectCrop
-                        visible: false
-                    }
+                    Column {
+                        id: emptyCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: Theme.spacingL
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.spacingS
 
-                    MultiEffect {
-                        anchors.fill: parent
-                        source: popoutArt
-                        maskEnabled: true
-                        maskSource: artMask
-                        visible: !!(service && service.trackArtUrl)
-                    }
+                        DankIcon {
+                            name: "music_off"
+                            size: Theme.iconSizeLarge
+                            color: Theme.surfaceVariantText
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
 
-                    Item {
-                        id: artMask
-                        anchors.fill: parent
-                        layer.enabled: true
-                        layer.smooth: true
-                        visible: false
+                        StyledText {
+                            width: parent.width
+                            text: "Nothing playing"
+                            font.pixelSize: Theme.fontSizeMedium
+                            font.weight: Font.Bold
+                            color: Theme.surfaceText
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: Theme.cornerRadius
-                            color: "black"
-                            antialiasing: true
+                        StyledText {
+                            width: parent.width
+                            text: (service && service.anyServiceConfigured)
+                                ? "Start playback on a whitelisted player or wait for remote Now Playing."
+                                : "Configure Last.fm or ListenBrainz in plugin settings to begin."
+                            font.pixelSize: Theme.fontSizeSmall - 1
+                            color: Theme.surfaceVariantText
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // Service connection summary pills
+                        Row {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            spacing: Theme.spacingS
+                            visible: !!(service && (service.lastfmConfigured || service.listenbrainzConfigured))
+
+                            StyledRect {
+                                visible: !!(service && service.lastfmConfigured)
+                                width: emptyLfmRow.implicitWidth + Theme.spacingS * 2
+                                height: 24
+                                radius: Theme.cornerRadiusSmall
+                                color: Theme.surfaceContainerHigh
+
+                                Row {
+                                    id: emptyLfmRow
+                                    anchors.centerIn: parent
+                                    spacing: Theme.spacingXS
+                                    DankIcon {
+                                        name: "check_circle"
+                                        size: 13
+                                        color: Theme.success
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    StyledText {
+                                        text: "Last.fm"
+                                        font.pixelSize: Theme.fontSizeSmall - 2
+                                        color: Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                            }
+
+                            StyledRect {
+                                visible: !!(service && service.listenbrainzConfigured)
+                                width: emptyLbRow.implicitWidth + Theme.spacingS * 2
+                                height: 24
+                                radius: Theme.cornerRadiusSmall
+                                color: Theme.surfaceContainerHigh
+
+                                Row {
+                                    id: emptyLbRow
+                                    anchors.centerIn: parent
+                                    spacing: Theme.spacingXS
+                                    DankIcon {
+                                        name: "check_circle"
+                                        size: 13
+                                        color: Theme.success
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    StyledText {
+                                        text: "ListenBrainz"
+                                        font.pixelSize: Theme.fontSizeSmall - 2
+                                        color: Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                            }
+                        }
+
+                        DankButton {
+                            visible: !!(service && service.pendingScrobbles > 0)
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "Flush " + (service ? service.pendingScrobbles : 0) + " queued"
+                            onClicked: if (service) service.flushQueue()
                         }
                     }
-
-                    // Placeholder if no cover art
-                    DankIcon {
-                        visible: !(service && service.trackArtUrl)
-                        name: "music_note"
-                        size: Theme.iconSizeLarge * 2
-                        color: Theme.surfaceVariantText
-                        anchors.centerIn: parent
-                    }
                 }
 
-                // 2. Track Metadata (Title, Artist, Album)
+                // Active Media View
                 Column {
+                    visible: root.hasActiveMedia
                     width: parent.width
-                    spacing: Theme.spacingXS
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: Theme.spacingM
 
-                    StyledText {
-                        width: parent.width
-                        text: root.service ? root.service.trackTitle : "No song playing"
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.weight: Font.Bold
-                        color: Theme.surfaceText
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: root.service ? root.service.trackArtist : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.weight: Font.Medium
-                        color: Theme.primary
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
-                        font.pixelSize: Theme.fontSizeSmall - 1
-                        color: Theme.surfaceVariantText
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        visible: text !== ""
-                    }
-                }
-
-                // 2b. Scrobble Progress
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingXS
-                    visible: !!(service && service.canScrobbleCurrent && service.trackTitle && service.scrobbleTargetSeconds > 0)
-
+                    // 1. Album Cover Art (Centered, Framed)
                     Rectangle {
-                        width: parent.width
-                        height: 4
+                        width: 184
+                        height: 184
                         radius: Theme.cornerRadius
-                        color: Theme.surfaceVariant
+                        color: Theme.surfaceContainerHigh
+                        border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.16)
+                        border.width: 1
+                        anchors.horizontalCenter: parent.horizontalCenter
 
-                        Rectangle {
-                            height: parent.height
-                            radius: Theme.cornerRadius
-                            width: parent.width * Math.max(0, Math.min(1,
-                                (service ? service.playtimeCounter : 0) /
-                                Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
-                            color: (service && service.scrobbleStatus === "error")
-                                ? Theme.error
-                                : ((service && service.scrobbledThisTrack) ? Theme.success : Theme.primary)
-                            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        Image {
+                            id: popoutArt
+                            anchors.fill: parent
+                            asynchronous: true
+                            source: service ? service.trackArtUrl : ""
+                            fillMode: Image.PreserveAspectCrop
+                            visible: false
+                        }
+
+                        MultiEffect {
+                            anchors.fill: parent
+                            source: popoutArt
+                            maskEnabled: true
+                            maskSource: artMask
+                            visible: !!(service && service.trackArtUrl) && popoutArt.status === Image.Ready
+                            opacity: popoutArt.status === Image.Ready ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 180 } }
+                        }
+
+                        Item {
+                            id: artMask
+                            anchors.fill: parent
+                            layer.enabled: true
+                            layer.smooth: true
+                            visible: false
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.cornerRadius
+                                color: "black"
+                                antialiasing: true
+                            }
+                        }
+
+                        DankIcon {
+                            visible: !(service && service.trackArtUrl) || popoutArt.status !== Image.Ready
+                            name: "music_note"
+                            size: Theme.iconSizeLarge * 2
+                            color: Theme.surfaceVariantText
+                            anchors.centerIn: parent
                         }
                     }
 
+                    // 1b. Source Badge
+                    StyledRect {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.min(parent.width, sourceBadgeRow.implicitWidth + Theme.spacingM)
+                        height: 22
+                        radius: Theme.cornerRadiusSmall
+                        color: Theme.surfaceContainerHigh
+
+                        Row {
+                            id: sourceBadgeRow
+                            anchors.centerIn: parent
+                            spacing: Theme.spacingXS
+
+                            DankIcon {
+                                name: (service && service.isRemoteSource) ? "podcasts" : "album"
+                                size: 13
+                                color: (service && service.isRemoteSource) ? Theme.primary : Theme.surfaceVariantText
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            StyledText {
+                                text: service ? service.sourceLabel : ""
+                                font.pixelSize: Theme.fontSizeSmall - 2
+                                color: Theme.surfaceVariantText
+                                elide: Text.ElideRight
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+                    }
+
+                    // 2. Track Metadata (Title, Artist, Album)
+                    Column {
+                        width: parent.width
+                        spacing: Theme.spacingXS
+                        anchors.horizontalCenter: parent.horizontalCenter
+
+                        StyledText {
+                            width: parent.width
+                            text: root.service ? root.service.trackTitle : ""
+                            font.pixelSize: Theme.fontSizeMedium
+                            font.weight: Font.Bold
+                            color: Theme.surfaceText
+                            horizontalAlignment: Text.AlignHCenter
+                            maximumLineCount: 2
+                            wrapMode: Text.WordWrap
+                            elide: Text.ElideRight
+                        }
+
+                        StyledText {
+                            width: parent.width
+                            text: root.service ? root.service.trackArtist : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.DemiBold
+                            color: Theme.primary
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                        }
+
+                        StyledText {
+                            width: parent.width
+                            text: root.service && root.service.trackAlbum ? root.service.trackAlbum : ""
+                            font.pixelSize: Theme.fontSizeSmall - 1
+                            color: Theme.surfaceVariantText
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            visible: text !== ""
+                        }
+                    }
+
+                    // 2b. Scrobble Progress
+                    Column {
+                        width: parent.width
+                        spacing: Theme.spacingXS
+                        visible: !!(service && service.canScrobbleCurrent && service.trackTitle && service.scrobbleTargetSeconds > 0 && service.anyServiceConfigured)
+
+                        Rectangle {
+                            width: parent.width
+                            height: 5
+                            radius: Theme.cornerRadius
+                            color: Theme.surfaceVariant
+
+                            Rectangle {
+                                height: parent.height
+                                radius: Theme.cornerRadius
+                                width: parent.width * Math.max(0, Math.min(1,
+                                    (service ? service.playtimeCounter : 0) /
+                                    Math.max(1, service ? service.scrobbleTargetSeconds : 1)))
+                                color: {
+                                    if (!service) return Theme.primary;
+                                    if (service.scrobbleStatus === "error") return Theme.error;
+                                    if (service.scrobbleStatus === "queued" || service.scrobbleStatus === "partial") return Theme.warning;
+                                    if (service.scrobbledThisTrack) return Theme.success;
+                                    return Theme.primary;
+                                }
+                                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                            }
+                        }
+
+                        StyledText {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            font.pixelSize: Theme.fontSizeSmall - 2
+                            color: {
+                                if (!service) return Theme.surfaceVariantText;
+                                if (service.scrobbleStatus === "error") return Theme.error;
+                                if (service.scrobbleStatus === "queued" || service.scrobbleStatus === "partial") return Theme.warning;
+                                if (service.scrobbledThisTrack) return Theme.success;
+                                return Theme.surfaceVariantText;
+                            }
+                            text: {
+                                if (!service) return "";
+                                if (service.scrobbleStatus === "accepted") return "Scrobbled ✓";
+                                if (service.scrobbleStatus === "queued") return "Queued offline ✓";
+                                if (service.scrobbleStatus === "partial") return "Partial delivery — retry below";
+                                if (service.scrobbleStatus === "sending") return "Sending…";
+                                if (service.scrobbleStatus === "error") return "Scrobble failed";
+                                var rem = Math.max(0, service.scrobbleTargetSeconds - service.playtimeCounter);
+                                return "Scrobbles in " + rem + "s";
+                            }
+                        }
+                    }
+
+                    // 2c. Per-service status & love chips
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: Theme.spacingS
+                        visible: !!(service && (service.lastfmConfigured || service.listenbrainzConfigured
+                            || (service.isRemoteSource && service.remoteService !== "")))
+
+                        // Last.fm chip
+                        StyledRect {
+                            visible: !!(service && (service.lastfmConfigured || (service.isRemoteSource && service.remoteService === "lastfm")))
+                            width: lfmChipRow.implicitWidth + Theme.spacingM
+                            height: 26
+                            radius: Theme.cornerRadiusSmall
+                            color: lfmChipMouse.containsPress ? Theme.surfaceVariant : (lfmChipMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.14)
+                            border.width: 1
+
+                            Row {
+                                id: lfmChipRow
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXS
+
+                                DankIcon {
+                                    name: root.statusIconName(service ? service.lastfmScrobbleStatus : "idle")
+                                    size: 13
+                                    color: root.statusIconColor(service ? service.lastfmScrobbleStatus : "idle")
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: "Last.fm"
+                                    font.pixelSize: Theme.fontSizeSmall - 2
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                DankIcon {
+                                    visible: !!(service && service.lastfmLoved)
+                                    name: "favorite"
+                                    size: 12
+                                    color: Theme.error
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+
+                            MouseArea {
+                                id: lfmChipMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.openLastFmTrack()
+                            }
+                        }
+
+                        // ListenBrainz chip
+                        StyledRect {
+                            visible: !!(service && (service.listenbrainzConfigured || (service.isRemoteSource && service.remoteService === "listenbrainz")))
+                            width: lbChipRow.implicitWidth + Theme.spacingM
+                            height: 26
+                            radius: Theme.cornerRadiusSmall
+                            color: lbChipMouse.containsPress ? Theme.surfaceVariant : (lbChipMouse.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.14)
+                            border.width: 1
+
+                            Row {
+                                id: lbChipRow
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXS
+
+                                DankIcon {
+                                    name: root.statusIconName(service ? service.listenbrainzScrobbleStatus : "idle")
+                                    size: 13
+                                    color: root.statusIconColor(service ? service.listenbrainzScrobbleStatus : "idle")
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: "ListenBrainz"
+                                    font.pixelSize: Theme.fontSizeSmall - 2
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                DankIcon {
+                                    visible: !!(service && service.listenbrainzLoved)
+                                    name: "favorite"
+                                    size: 12
+                                    color: Theme.error
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+
+                            MouseArea {
+                                id: lbChipMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.openListenBrainzTrack()
+                            }
+                        }
+                    }
+
+                    // 3. Companion Action Row (Love + Sync + Artist + Track + Refresh)
+                    Row {
+                        spacing: Theme.spacingS
+                        anchors.horizontalCenter: parent.horizontalCenter
+
+                        // Primary Love pill button
+                        StyledRect {
+                            width: loveBtnRow.implicitWidth + Theme.spacingM * 1.5
+                            height: 36
+                            radius: Theme.cornerRadius
+                            opacity: (service && service.lovePending) ? 0.6 : 1.0
+                            color: {
+                                if (root.isLoved) {
+                                    return loveMouseP.containsPress
+                                        ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.28)
+                                        : (loveMouseP.containsMouse
+                                            ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.22)
+                                            : Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.14));
+                                }
+                                return loveMouseP.containsPress
+                                    ? Theme.surfaceVariant
+                                    : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer);
+                            }
+                            border.color: root.isLoved
+                                ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.45)
+                                : Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.14)
+                            border.width: 1
+
+                            Row {
+                                id: loveBtnRow
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXS
+
+                                DankIcon {
+                                    name: root.isLoved ? "favorite" : "favorite_border"
+                                    size: Theme.iconSizeSmall + 2
+                                    color: root.isLoved ? Theme.error : Theme.widgetIconColor
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                StyledText {
+                                    text: (service && service.isPartiallyLoved)
+                                        ? "Loved (1/2)"
+                                        : (root.isLoved ? "Loved" : "Love")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.weight: Font.DemiBold
+                                    color: root.isLoved ? Theme.error : Theme.surfaceText
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+
+                            MouseArea {
+                                id: loveMouseP
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.toggleLove()
+                            }
+                        }
+
+                        // Sync missing love across services when partially loved
+                        StyledRect {
+                            visible: !!(service && service.isPartiallyLoved)
+                            width: 36
+                            height: 36
+                            radius: Theme.cornerRadius
+                            color: syncLoveMouseP.containsPress ? Theme.surfaceVariant : (syncLoveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.35)
+                            border.width: 1
+
+                            DankIcon {
+                                name: "sync"
+                                size: Theme.iconSizeSmall + 2
+                                color: Theme.primary
+                                anchors.centerIn: parent
+                            }
+
+                            MouseArea {
+                                id: syncLoveMouseP
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: if (service) service.loveCurrentTrack()
+                            }
+                        }
+
+                        // Open Artist
+                        StyledRect {
+                            width: 36
+                            height: 36
+                            radius: Theme.cornerRadius
+                            color: artistMouseP.containsPress ? Theme.surfaceVariant : (artistMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
+                            border.width: 1
+
+                            DankIcon {
+                                name: "person"
+                                size: Theme.iconSizeSmall + 2
+                                color: Theme.widgetIconColor
+                                anchors.centerIn: parent
+                            }
+
+                            MouseArea {
+                                id: artistMouseP
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (service && (service.lastfmConfigured || !service.listenbrainzConfigured))
+                                        root.openLastFmArtist();
+                                    else
+                                        root.openListenBrainzTrack();
+                                }
+                            }
+                        }
+
+                        // Open Track
+                        StyledRect {
+                            width: 36
+                            height: 36
+                            radius: Theme.cornerRadius
+                            color: trackMouseP.containsPress ? Theme.surfaceVariant : (trackMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
+                            border.width: 1
+
+                            DankIcon {
+                                name: "open_in_new"
+                                size: Theme.iconSizeSmall + 2
+                                color: Theme.primary
+                                anchors.centerIn: parent
+                            }
+
+                            MouseArea {
+                                id: trackMouseP
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (service && !service.lastfmConfigured && service.listenbrainzConfigured)
+                                        root.openListenBrainzTrack();
+                                    else
+                                        root.openLastFmTrack();
+                                }
+                            }
+                        }
+
+                        // Refresh track info
+                        StyledRect {
+                            width: 36
+                            height: 36
+                            radius: Theme.cornerRadius
+                            color: refreshMouseP.containsPress ? Theme.surfaceVariant : (refreshMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
+                            border.color: Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.12)
+                            border.width: 1
+
+                            DankIcon {
+                                name: "refresh"
+                                size: Theme.iconSizeSmall + 2
+                                color: Theme.widgetIconColor
+                                anchors.centerIn: parent
+                            }
+
+                            MouseArea {
+                                id: refreshMouseP
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.doAction("refresh")
+                            }
+                        }
+                    }
+
+                    // 3b. Retry / Queue Banner
+                    StyledRect {
+                        visible: !!(service && (service.pendingScrobbles > 0 || service.scrobbleStatus === "error" || service.scrobbleStatus === "partial"))
+                        width: parent.width
+                        height: bannerRow.implicitHeight + Theme.spacingM
+                        radius: Theme.cornerRadius
+                        color: (service && (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial"))
+                            ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.12)
+                            : Theme.surfaceContainerHigh
+                        border.color: (service && (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial"))
+                            ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.35)
+                            : Qt.rgba(Theme.outline.r, Theme.outline.g, Theme.outline.b, 0.15)
+                        border.width: 1
+
+                        Row {
+                            id: bannerRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                width: parent.width - bannerActionBtn.width - Theme.spacingS
+                                anchors.verticalCenter: parent.verticalCenter
+                                font.pixelSize: Theme.fontSizeSmall - 2
+                                color: (service && (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial"))
+                                    ? Theme.error
+                                    : Theme.surfaceText
+                                wrapMode: Text.WordWrap
+                                text: {
+                                    if (!service) return "";
+                                    var msgs = [];
+                                    if (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial") {
+                                        if (service.lastfmScrobbleError) msgs.push("Last.fm: " + service.lastfmScrobbleError);
+                                        if (service.listenbrainzScrobbleError) msgs.push("LB: " + service.listenbrainzScrobbleError);
+                                    }
+                                    if (service.pendingScrobbles > 0)
+                                        msgs.push(service.pendingScrobbles + " queued offline");
+                                    return msgs.join(" · ");
+                                }
+                            }
+
+                            StyledRect {
+                                id: bannerActionBtn
+                                width: bannerBtnTxt.implicitWidth + Theme.spacingM
+                                height: 24
+                                radius: Theme.cornerRadiusSmall
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: bannerBtnMouse.containsPress ? Theme.surfaceVariant : Theme.surfaceContainer
+
+                                StyledText {
+                                    id: bannerBtnTxt
+                                    anchors.centerIn: parent
+                                    text: (service && (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial")) ? "Retry" : "Flush"
+                                    font.pixelSize: Theme.fontSizeSmall - 2
+                                    font.weight: Font.DemiBold
+                                    color: Theme.primary
+                                }
+
+                                MouseArea {
+                                    id: bannerBtnMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (!service) return;
+                                        if (service.scrobbleStatus === "error" || service.scrobbleStatus === "partial")
+                                            service.retryScrobble();
+                                        else
+                                            service.flushQueue();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Footer (Accounts summary)
                     StyledText {
                         width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        font.pixelSize: Theme.fontSizeSmall - 2
-                        color: (service && service.scrobbleStatus === "error")
-                            ? Theme.error
-                            : ((service && service.scrobbledThisTrack) ? Theme.success : Theme.surfaceVariantText)
                         text: {
                             if (!service) return "";
-                            if (service.scrobbleStatus === "accepted") return "Scrobbled ✓";
-                            if (service.scrobbleStatus === "queued") return "Queued offline ✓";
-                            if (service.scrobbleStatus === "sending") return "Sending…";
-                            if (service.scrobbleStatus === "error") return "Scrobble failed";
-                            var rem = Math.max(0, service.scrobbleTargetSeconds - service.playtimeCounter);
-                            return "Scrobbles in " + rem + "s";
+                            var acctParts = [];
+                            if (service.lastfmEnabled && service.username)
+                                acctParts.push("Last.fm: <b>" + service.username + "</b>");
+                            if (service.listenbrainzEnabled && service.listenbrainzUsername)
+                                acctParts.push("LB: <b>" + service.listenbrainzUsername + "</b>");
+                            else if (service.listenbrainzConfigured)
+                                acctParts.push("LB: <b>connected</b>");
+                            var str = acctParts.join(" · ");
+                            if (service.isRemoteSource)
+                                str += (str ? "<br/>" : "") + "Scrobble managed by external source";
+                            return str;
                         }
+                        visible: text !== ""
+                        font.pixelSize: Theme.fontSizeSmall - 2
+                        color: Theme.surfaceVariantText
+                        horizontalAlignment: Text.AlignHCenter
+                        textFormat: Text.StyledText
+                        wrapMode: Text.WordWrap
                     }
-                }
-
-                // 3. Last.fm actions. Playback remains in DMS's native player.
-                Row {
-                    spacing: Theme.spacingM
-                    anchors.horizontalCenter: parent.horizontalCenter
-
-                    // Love / Heart button
-                    StyledRect {
-                        width: Theme.iconSizeLarge + Theme.spacingXS
-                        height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: Theme.cornerRadius
-                        color: loveMouseP.containsPress ? Theme.surfaceVariant : (loveMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-
-                        DankIcon {
-                            name: root.isLoved ? "favorite" : "favorite_border"
-                            size: Theme.iconSizeSmall + Theme.spacingXS
-                            color: root.isLoved ? Theme.error : Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-
-                        MouseArea {
-                            id: loveMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.toggleLove()
-                        }
-                    }
-
-                    // Open artist on Last.fm
-                    StyledRect {
-                        width: Theme.iconSizeLarge + Theme.spacingXS
-                        height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: Theme.cornerRadius
-                        color: prevMouseP.containsPress ? Theme.surfaceVariant : (prevMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.hasTrack)
-
-                        DankIcon {
-                            name: "person"
-                            size: Theme.iconSizeSmall + Theme.spacingXS
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-
-                        MouseArea {
-                            id: prevMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.doAction("lastfm_artist")
-                        }
-                    }
-
-                    // Open track on Last.fm
-                    StyledRect {
-                        width: Theme.iconSizeLarge + Theme.spacingM
-                        height: Theme.iconSizeLarge + Theme.spacingM
-                        radius: Theme.cornerRadius
-                        color: playMouseP.containsPress ? Theme.surfaceVariant : (playMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.hasTrack)
-
-                        DankIcon {
-                            name: "open_in_new"
-                            size: Theme.iconSize
-                            color: Theme.primary
-                            anchors.centerIn: parent
-                        }
-
-                        MouseArea {
-                            id: playMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.doAction("lastfm_track")
-                        }
-                    }
-
-                    // Refresh Last.fm information
-                    StyledRect {
-                        width: Theme.iconSizeLarge + Theme.spacingXS
-                        height: Theme.iconSizeLarge + Theme.spacingXS
-                        radius: Theme.cornerRadius
-                        color: nextMouseP.containsPress ? Theme.surfaceVariant : (nextMouseP.containsMouse ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-                        visible: !!(service && service.hasTrack)
-
-                        DankIcon {
-                            name: "refresh"
-                            size: Theme.iconSizeSmall + Theme.spacingXS
-                            color: Theme.widgetIconColor
-                            anchors.centerIn: parent
-                        }
-
-                        MouseArea {
-                            id: nextMouseP
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.doAction("refresh")
-                        }
-                    }
-                }
-
-                // 4. Source & Username footer
-                StyledText {
-                    width: parent.width
-                    text: {
-                        var str = "";
-                        if (service && service.username) {
-                            str += "Scrobbling as: <b>" + service.username + "</b><br/>";
-                        }
-                        if (service && service.hasTrack) {
-                            str += "Source: " + service.sourceLabel;
-                            if (service.isRemoteSource) str += "<br/>Scrobble managed by external source";
-                        }
-                        if (service && service.pendingScrobbles > 0) {
-                            str += "<br/>⏳ " + service.pendingScrobbles + " scrobble(s) pending (offline)";
-                        }
-                        return str;
-                    }
-                    font.pixelSize: Theme.fontSizeSmall - 2
-                    color: Theme.surfaceVariantText
-                    horizontalAlignment: Text.AlignHCenter
-                    textFormat: Text.StyledText
                 }
             }
         }
@@ -394,7 +990,7 @@ PluginComponent {
                     } else {
                         tooltipY = root.barThickness + root.barSpacing + Theme.spacingXS;
                     }
-                    hTipLoader.item.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
+                    hTipLoader.item.show(root.tooltipSummary(),
                                          localPos.x, tooltipY, currentScreen, false, false);
                 }
             }
@@ -420,6 +1016,7 @@ PluginComponent {
 
                 // 1. Album Art Thumbnail
                 Rectangle {
+                    id: hArtRect
                     width: root.iconSize
                     height: root.iconSize
                     radius: Theme.cornerRadius / 2
@@ -430,6 +1027,7 @@ PluginComponent {
 
                     Image {
                         anchors.fill: parent
+                        asynchronous: true
                         source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
                     }
@@ -516,6 +1114,7 @@ PluginComponent {
                     width: root.iconSize
                     height: width
                     visible: !!(service && service.showLoveButton)
+                    opacity: (service && service.lovePending) ? 0.55 : 1.0
                     anchors.verticalCenter: parent.verticalCenter
 
                     DankIcon {
@@ -542,11 +1141,21 @@ PluginComponent {
                 }
 
                 StyledText {
+                    id: hLovedText
                     visible: root.isLoved && !!(service && service.showLoveButton)
                     text: root.isLoved ? "Loved" : ""
                     color: Theme.error
                     font.pixelSize: root.barLabelSize
                     font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                // Fallback icon if all optional elements are disabled so pill stays visible
+                DankIcon {
+                    visible: !hArtRect.visible && !animRow.visible && !trackTextClip.visible && !heartContainer.visible
+                    name: "music_note"
+                    size: root.iconSize
+                    color: Theme.widgetIconColor
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -594,7 +1203,7 @@ PluginComponent {
                     var tooltipX = isLeft
                         ? (root.barThickness + root.barSpacing + Theme.spacingXS)
                         : (currentScreen.width - root.barThickness - root.barSpacing - Theme.spacingXS);
-                    vTipLoader.item.show(root.trackDisplay + (root.isLoved ? " (Loved)" : " (Unloved)"),
+                    vTipLoader.item.show(root.tooltipSummary(),
                                          tooltipX, adjustedY, currentScreen, isLeft, !isLeft);
                 }
             }
@@ -618,6 +1227,7 @@ PluginComponent {
 
                 // 1. Album Art Thumbnail (vertical)
                 Rectangle {
+                    id: vArtRect
                     width: root.iconSize
                     height: root.iconSize
                     radius: Theme.cornerRadius / 2
@@ -628,6 +1238,7 @@ PluginComponent {
 
                     Image {
                         anchors.fill: parent
+                        asynchronous: true
                         source: service ? service.trackArtUrl : ""
                         fillMode: Image.PreserveAspectCrop
                     }
@@ -658,6 +1269,7 @@ PluginComponent {
                     width: root.iconSize
                     height: width
                     visible: !!(service && service.showLoveButton)
+                    opacity: (service && service.lovePending) ? 0.55 : 1.0
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     DankIcon {
@@ -683,6 +1295,14 @@ PluginComponent {
                     }
                 }
 
+                // Fallback icon if all optional elements are disabled
+                DankIcon {
+                    visible: !vArtRect.visible && !animCol.visible && !heartContainerV.visible
+                    name: "music_note"
+                    size: root.iconSize
+                    color: Theme.widgetIconColor
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
             }
         }
     }

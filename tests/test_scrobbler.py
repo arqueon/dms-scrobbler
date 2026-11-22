@@ -18,6 +18,25 @@ SCROBBLER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SCROBBLER)
 
 
+class FakeHTTPResponse:
+    def __init__(self, body_dict, status=200, headers=None):
+        self._body = json.dumps(body_dict).encode("utf-8")
+        self.status = status
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self._body
+
+    def getcode(self):
+        return self.status
+
+
 class ScrobblerTests(unittest.TestCase):
     def test_search_normalization_handles_ligatures_and_accents(self):
         self.assertEqual(
@@ -46,6 +65,60 @@ class ScrobblerTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertFalse(SCROBBLER.is_retryable({"error": code}))
 
+    def test_lb_retryable_errors(self):
+        for code in (-1, 429, 500, 502, 503):
+            with self.subTest(code=code):
+                self.assertTrue(SCROBBLER.is_lb_retryable({"error": code}))
+        for code in (400, 401, 403, 404, 422):
+            with self.subTest(code=code):
+                self.assertFalse(SCROBBLER.is_lb_retryable({"error": code}))
+
+    def test_largest_image_skips_lastfm_placeholder_star(self):
+        placeholder = "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"
+        real_art = "https://lastfm.freetls.fastly.net/i/u/300x300/abcdef1234567890.jpg"
+        self.assertEqual(
+            SCROBBLER.largest_image([{"size": "extralarge", "#text": placeholder}]),
+            "",
+        )
+        self.assertEqual(
+            SCROBBLER.largest_image([
+                {"size": "extralarge", "#text": placeholder},
+                {"size": "large", "#text": real_art},
+            ]),
+            real_art,
+        )
+
+    def test_recent_now_playing_picks_largest_non_placeholder_art(self):
+        placeholder = "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"
+        xl_art = "https://example.test/xl.jpg"
+        small_art = "https://example.test/small.jpg"
+        api_payload = {
+            "recenttracks": {
+                "track": [{
+                    "@attr": {"nowplaying": "true"},
+                    "artist": {"name": "Artist"},
+                    "name": "Track",
+                    "album": {"#text": "Album"},
+                    "loved": "1",
+                    "url": "https://www.last.fm/music/Artist/_/Track",
+                    "image": [
+                        {"size": "extralarge", "#text": xl_art},
+                        {"size": "small", "#text": small_art},
+                        {"size": "mega", "#text": placeholder},
+                    ],
+                }]
+            }
+        }
+        buf = io.StringIO()
+        with mock.patch.object(SCROBBLER, "call_api", return_value=api_payload), \
+             mock.patch.object(sys, "argv", ["scrobbler.py", "recent-now-playing", "key", "user"]), \
+             mock.patch("sys.stdout", buf):
+            SCROBBLER.main()
+        result = json.loads(buf.getvalue())
+        self.assertTrue(result["now_playing"])
+        self.assertEqual(result["album_art"], xl_art)
+        self.assertTrue(result["loved"])
+
     def test_love_accepts_explicit_lastfm_confirmation(self):
         self.assertEqual(
             SCROBBLER.confirmed_write_result(
@@ -59,19 +132,11 @@ class ScrobblerTests(unittest.TestCase):
         self.assertIn("did not confirm", failed["message"])
 
     def test_love_accepts_empty_json_after_http_success(self):
-        class Response:
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return b"{}"
-
-        with mock.patch.object(SCROBBLER.urllib.request, "urlopen", return_value=Response()):
+        with mock.patch.object(
+            SCROBBLER.urllib.request,
+            "urlopen",
+            return_value=FakeHTTPResponse({}, status=200),
+        ):
             api_result = SCROBBLER.call_api(
                 "track.love",
                 {"api_key": "key"},
@@ -469,7 +534,286 @@ class ScrobblerTests(unittest.TestCase):
                 timeout=10,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {"count": 0})
+        self.assertEqual(json.loads(result.stdout), {"count": 0, "lastfm": 0, "listenbrainz": 0})
+
+    # ── ListenBrainz Tests ──
+
+    def test_normalize_lb_url(self):
+        self.assertEqual(SCROBBLER.normalize_lb_url(""), "https://api.listenbrainz.org")
+        self.assertEqual(SCROBBLER.normalize_lb_url("https://lb.example.org/"), "https://lb.example.org")
+        with self.assertRaises(ValueError):
+            SCROBBLER.normalize_lb_url("file:///etc/passwd")
+        with self.assertRaises(ValueError):
+            SCROBBLER.normalize_lb_url("javascript:alert(1)")
+
+    def test_call_lb_api_normalizes_http_error_message(self):
+        err = urllib.error.HTTPError(
+            "https://api.listenbrainz.org/1/metadata/lookup/",
+            401,
+            "Unauthorized",
+            {"X-RateLimit-Remaining": "29", "X-RateLimit-Reset-In": "3"},
+            io.BytesIO(b'{"code":401,"error":"You need to provide an Authorization header."}'),
+        )
+        try:
+            with mock.patch.object(SCROBBLER.urllib.request, "urlopen", side_effect=err):
+                res = SCROBBLER.call_lb_api("GET", "/1/metadata/lookup/")
+        finally:
+            err.close()
+        self.assertEqual(res["error"], 401)
+        self.assertEqual(res["http_status"], 401)
+        self.assertEqual(res["message"], "You need to provide an Authorization header.")
+        self.assertEqual(res["ratelimit_remaining"], 29)
+
+    def test_lb_validate_token(self):
+        with mock.patch.object(
+            SCROBBLER.urllib.request,
+            "urlopen",
+            return_value=FakeHTTPResponse({"code": 200, "valid": True, "user_name": "arqueon"}),
+        ) as urlopen_mock:
+            valid = SCROBBLER.lb_validate_token("tok-123")
+        self.assertTrue(valid["valid"])
+        self.assertEqual(valid["username"], "arqueon")
+        req = urlopen_mock.call_args.args[0]
+        self.assertEqual(req.get_header("Authorization"), "Token tok-123")
+
+        with mock.patch.object(
+            SCROBBLER.urllib.request,
+            "urlopen",
+            return_value=FakeHTTPResponse({"code": 200, "valid": False, "message": "Token invalid."}),
+        ):
+            invalid = SCROBBLER.lb_validate_token("bad-tok")
+        self.assertFalse(invalid["valid"])
+        self.assertEqual(invalid["error"], 401)
+
+    def test_lb_now_playing_omits_listened_at_and_returns_msid(self):
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["auth"] = req.get_header("Authorization")
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return FakeHTTPResponse({"status": "ok", "recording_msid": "msid-abc"})
+
+        with mock.patch.object(SCROBBLER.urllib.request, "urlopen", side_effect=fake_urlopen):
+            res = SCROBBLER.lb_now_playing(
+                "tok-1", "Radiohead", "Creep", album="Pablo Honey", duration_ms=238000, player="mpd"
+            )
+        self.assertEqual(res, {"status": "ok", "recording_msid": "msid-abc"})
+        self.assertIn("return_msid=true", captured["url"])
+        self.assertEqual(captured["auth"], "Token tok-1")
+        self.assertEqual(captured["body"]["listen_type"], "playing_now")
+        item = captured["body"]["payload"][0]
+        self.assertNotIn("listened_at", item)
+        self.assertEqual(item["track_metadata"]["release_name"], "Pablo Honey")
+        self.assertEqual(item["track_metadata"]["additional_info"]["duration_ms"], 238000)
+        self.assertEqual(item["track_metadata"]["additional_info"]["media_player"], "mpd")
+
+    def test_lb_scrobble_queues_on_retryable_only(self):
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": cache_dir}):
+                with mock.patch.object(
+                    SCROBBLER,
+                    "call_lb_api",
+                    return_value={"error": 429, "message": "Rate limit exceeded"},
+                ):
+                    queued = SCROBBLER.lb_scrobble(
+                        "tok", "Artist", "Track", 1700000100, album="Album", duration_ms=180000, player="mpd"
+                    )
+                self.assertTrue(queued["queued"])
+                self.assertEqual(queued["service"], "listenbrainz")
+                self.assertEqual(SCROBBLER.queue_stats()["listenbrainz"], 1)
+
+                with mock.patch.object(
+                    SCROBBLER,
+                    "call_lb_api",
+                    return_value={"error": 401, "message": "Unauthorized"},
+                ):
+                    rejected = SCROBBLER.lb_scrobble("bad", "Artist", "Track2", 1700000200)
+                self.assertEqual(rejected["error"], 401)
+                self.assertEqual(SCROBBLER.queue_stats()["listenbrainz"], 1)
+
+    def test_multi_service_offline_queue_isolation(self):
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": cache_dir}):
+                SCROBBLER.save_queue([
+                    {"artist": "Lfm1", "track": "Song1", "timestamp": "100"},
+                    {"service": "listenbrainz", "artist": "Lb2", "track": "Song2", "timestamp": 300},
+                    {"service": "listenbrainz", "artist": "Lb1", "track": "Song1", "timestamp": 200},
+                ])
+                stats = SCROBBLER.queue_stats()
+                self.assertEqual(stats, {"count": 3, "lastfm": 1, "listenbrainz": 2})
+
+                with mock.patch.object(SCROBBLER, "call_api", return_value={"scrobbles": {"@attr": {"accepted": 1}}}) as lfm_mock:
+                    lfm_res = SCROBBLER.flush_lastfm_queue("k", "s", "sk")
+                self.assertEqual(lfm_res["flushed"], 1)
+                self.assertEqual(lfm_res["remaining"], 0)
+                self.assertEqual(lfm_res["total_remaining"], 2)
+                self.assertEqual(len(lfm_mock.call_args_list), 1)
+                self.assertEqual(SCROBBLER.queue_stats()["listenbrainz"], 2)
+
+                lb_bodies = []
+
+                def fake_lb(method, path, token=None, base_url=None, params=None, body=None):
+                    lb_bodies.append(body)
+                    return {"status": "ok"}
+
+                with mock.patch.object(SCROBBLER, "call_lb_api", side_effect=fake_lb):
+                    lb_res = SCROBBLER.flush_lb_queue("tok")
+                self.assertEqual(lb_res["flushed"], 2)
+                self.assertEqual(lb_res["remaining"], 0)
+                self.assertEqual(lb_res["total_remaining"], 0)
+                self.assertEqual(lb_bodies[0]["listen_type"], "import")
+                # Sorted ascending by timestamp
+                self.assertEqual(
+                    [x["listened_at"] for x in lb_bodies[0]["payload"]],
+                    [200, 300],
+                )
+                self.assertEqual(SCROBBLER.load_queue(), [])
+
+    def test_lb_flush_stops_when_ratelimit_exhausted(self):
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": cache_dir}):
+                entries = [
+                    {"service": "listenbrainz", "artist": f"A{i}", "track": f"T{i}", "timestamp": 1000 + i}
+                    for i in range(105)
+                ]
+                SCROBBLER.save_queue(entries)
+                with mock.patch.object(
+                    SCROBBLER,
+                    "call_lb_api",
+                    return_value={"status": "ok", "ratelimit_remaining": 0},
+                ) as lb_mock:
+                    res = SCROBBLER.flush_lb_queue("tok")
+                self.assertEqual(len(lb_mock.call_args_list), 1)
+                self.assertEqual(res["flushed"], 100)
+                self.assertEqual(res["remaining"], 5)
+                self.assertEqual(len(SCROBBLER.load_queue()), 5)
+
+    def test_lb_lookup_sends_auth_and_retries_without_album(self):
+        calls = []
+
+        def fake_lb(method, path, token=None, base_url=None, params=None, body=None):
+            calls.append((token, params))
+            if "release_name" in params:
+                return {}
+            return {
+                "recording_mbid": "mbid-rec-1",
+                "release_mbid": "mbid-rel-1",
+                "artist_mbids": ["mbid-art-1"],
+                "release_name": "Canonical Album",
+            }
+
+        with mock.patch.object(SCROBBLER, "call_lb_api", side_effect=fake_lb):
+            res = SCROBBLER.lb_lookup_metadata("tok-99", "Artist", "Track", album="Deluxe Edition")
+        self.assertEqual(res["recording_mbid"], "mbid-rec-1")
+        self.assertEqual(calls[0][0], "tok-99")
+        self.assertIn("release_name", calls[0][1])
+        self.assertNotIn("release_name", calls[1][1])
+
+    def test_lb_love_prefers_mbid_and_falls_back_to_playing_now_msid(self):
+        # 1) Mapped recording -> uses recording_mbid
+        with mock.patch.object(
+            SCROBBLER,
+            "lb_lookup_metadata",
+            return_value={"recording_mbid": "mbid-1", "release_mbid": "rel-1"},
+        ), mock.patch.object(
+            SCROBBLER,
+            "lb_find_msid_from_user_listens",
+            return_value={},
+        ), mock.patch.object(
+            SCROBBLER,
+            "call_lb_api",
+            return_value={"status": "ok"},
+        ) as fb_mock:
+            res = SCROBBLER.lb_love("tok", "arqueon", "Artist", "Song")
+        self.assertTrue(res["loved"])
+        self.assertEqual(fb_mock.call_args.kwargs["body"], {"recording_mbid": "mbid-1", "score": 1})
+
+        # 2) Unmapped recording -> calls playing_now?return_msid=true and loves via MSID
+        with mock.patch.object(SCROBBLER, "lb_lookup_metadata", return_value={}), \
+             mock.patch.object(SCROBBLER, "lb_find_msid_from_user_listens", return_value={}), \
+             mock.patch.object(
+                 SCROBBLER,
+                 "lb_now_playing",
+                 return_value={"status": "ok", "recording_msid": "msid-minted"},
+             ) as np_mock, \
+             mock.patch.object(SCROBBLER, "call_lb_api", return_value={"status": "ok"}) as fb_mock:
+            res2 = SCROBBLER.lb_love("tok", "arqueon", "Obscure", "Demo")
+        self.assertTrue(res2["loved"])
+        self.assertEqual(res2["recording_msid"], "msid-minted")
+        np_mock.assert_called_once()
+        self.assertEqual(fb_mock.call_args.kwargs["body"], {"recording_msid": "msid-minted", "score": 1})
+
+    def test_lb_unlove_clears_legacy_msid_and_mbid_feedback(self):
+        feedback_posts = []
+
+        def fake_lb(method, path, token=None, base_url=None, params=None, body=None):
+            if path.endswith("/get-feedback-for-recordings"):
+                return {
+                    "feedback": [
+                        {"recording_mbid": "mbid-1", "recording_msid": None, "score": 1},
+                        {"recording_mbid": None, "recording_msid": "msid-legacy", "score": 1},
+                    ]
+                }
+            if path == "/1/feedback/recording-feedback":
+                feedback_posts.append(body)
+                return {"status": "ok"}
+            return {}
+
+        with mock.patch.object(
+            SCROBBLER,
+            "lb_lookup_metadata",
+            return_value={"recording_mbid": "mbid-1"},
+        ), mock.patch.object(
+            SCROBBLER,
+            "lb_find_msid_from_user_listens",
+            return_value={"recording_msid": "msid-legacy"},
+        ), mock.patch.object(
+            SCROBBLER,
+            "call_lb_api",
+            side_effect=fake_lb,
+        ):
+            res = SCROBBLER.lb_unlove("tok", "arqueon", "Artist", "Song")
+
+        self.assertFalse(res["loved"])
+        self.assertEqual(
+            feedback_posts,
+            [
+                {"recording_mbid": "mbid-1", "score": 0},
+                {"recording_msid": "msid-legacy", "score": 0},
+            ],
+        )
+
+    def test_lb_recent_now_playing_resolves_love_status(self):
+        def fake_lb(method, path, token=None, base_url=None, params=None, body=None):
+            if path.endswith("/playing-now"):
+                return {
+                    "payload": {
+                        "listens": [{
+                            "recording_msid": "msid-live",
+                            "track_metadata": {
+                                "artist_name": "Fenne Lily",
+                                "track_name": "Hypochondriac",
+                                "release_name": "Hypochondriac",
+                                "mbid_mapping": {
+                                    "recording_mbid": "rec-mbid-1",
+                                    "release_mbid": "rel-mbid-1",
+                                },
+                            },
+                        }]
+                    }
+                }
+            if path.endswith("/get-feedback-for-recordings"):
+                return {"feedback": [{"recording_mbid": "rec-mbid-1", "score": 1}]}
+            return {}
+
+        with mock.patch.object(SCROBBLER, "call_lb_api", side_effect=fake_lb):
+            res = SCROBBLER.lb_recent_now_playing("arqueon", token="tok")
+        self.assertTrue(res["now_playing"])
+        self.assertEqual(res["artist"], "Fenne Lily")
+        self.assertEqual(res["track"], "Hypochondriac")
+        self.assertTrue(res["loved"])
+        self.assertEqual(res["url"], "https://musicbrainz.org/recording/rec-mbid-1")
 
 
 if __name__ == "__main__":

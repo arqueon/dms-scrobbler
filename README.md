@@ -1,8 +1,8 @@
-# DMS Last.fm Companion & Scrobbler
+# DMS Last.fm & ListenBrainz Scrobbler
 
-A [Dank Material Shell (DMS)](https://github.com/AvengeMedia/DankMaterialShell) companion for the official media player built into DMS. It follows DMS's canonical MPRIS selection, updates Last.fm "Now Playing", scrobbles tracks, toggles love/unlove, and opens the current artist or track on Last.fm. Its optional read-only MPRIS bridge supplies enriched artwork for the same local track and republishes remote tracks reported to the authenticated Last.fm account.
+A [Dank Material Shell (DMS)](https://github.com/AvengeMedia/DankMaterialShell) companion for the official media player built into DMS. It follows DMS's canonical MPRIS selection, updates **Last.fm** and **ListenBrainz** "Now Playing", submits scrobbles/listens, toggles love/unlove feedback on both services, and opens the current artist or recording on Last.fm or MusicBrainz/ListenBrainz. Its optional read-only MPRIS bridge supplies enriched artwork for the same local track and republishes remote tracks reported to Last.fm or ListenBrainz.
 
-The plugin is deliberately subordinate to DMS's native media controls: playback, previous/next, seeking, volume and player selection remain exclusively in the official DMS media player. This plugin adds only Last.fm state and actions.
+The plugin is deliberately subordinate to DMS's native media controls: playback, previous/next, seeking, volume and player selection remain exclusively in the official DMS media player. This plugin adds only scrobbling and favorite state/actions.
 
 ## Responsibilities
 
@@ -14,132 +14,93 @@ The plugin is deliberately subordinate to DMS's native media controls: playback,
 
 **This companion owns:**
 
-- Last.fm Now Playing and scrobbling
-- love/unlove, artist/track links and offline queueing
-- explicit scrobble delivery states: sending, accepted, queued or failed
+- Last.fm and ListenBrainz Now Playing and scrobbling / listen submission
+- love/unlove sync (`track.love` / `track.unlove` on Last.fm; `/1/feedback/recording-feedback` on ListenBrainz)
+- MusicBrainz MBID lookup and MessyBrainz MSID fallback so unmapped tracks can still be loved on ListenBrainz
+- per-service delivery states (`sending`, `accepted`, `queued`, `partial`, `error`) and an isolated multi-service offline retry queue
+- Control Center quick-tile and expandable detail card
 - artwork enrichment from DMS and Last.fm metadata, with an optional YouTube Music search
-- optional publication of enriched local metadata and remote Last.fm playback through a read-only MPRIS source
+- optional publication of enriched local metadata and remote Now Playing through a read-only MPRIS source
 
 ## System Dependencies
 The core plugin has **zero external package dependencies** (no `pip install` required) and runs completely out-of-the-box.
 - **Python 3**: Installed on your system (uses only standard libraries: `urllib`, `json`, `hashlib`, `urllib.parse`).
 - **Quickshell / Dank Material Shell**: Version `>= 1.5.0` (provides composite daemon plugins and native MPRIS tracking).
-- **MPRIS-compatible player**: Any media player implementing the MPRIS D-Bus interface (e.g. Spotify, mpd, Cider, Audacious, VLC, etc.).
+- **MPRIS-compatible player**: Any media player implementing the MPRIS D-Bus interface (e.g. Spotify, mpd, Cider, Audacious, VLC, Chrome, Firefox, Feishin, Aonsoku).
 
 The optional synthetic MPRIS bridge is a small native helper. Building it requires a C compiler plus the development headers for `libsystemd` and `json-c`.
 
-If `mpris-bridge` is absent, scrobbling, Last.fm actions and the in-plugin remote fallback continue working; only metadata enrichment/publication into DMS's native media player is disabled.
+If `mpris-bridge` is absent, scrobbling, ListenBrainz/Last.fm actions and the in-plugin remote fallback continue working; only metadata enrichment/publication into DMS's native media player is disabled.
 
 ## Installation
 
-Clone the plugin and link it into DMS. The `make` step is optional and enables publication of remote Last.fm playback in DMS's official media player:
+Clone the plugin and link or place it into DMS. The `make` step is optional and enables publication of remote playback and enriched artwork in DMS's official media player:
 
 ```bash
-git clone https://github.com/arqueon/dms-scrobbler.git ~/Projects/dms-scrobbler
-make -C ~/Projects/dms-scrobbler
-ln -s ~/Projects/dms-scrobbler ~/.config/DankMaterialShell/plugins/lastfmScrobbler
-systemctl --user restart dms.service
+git clone https://github.com/arqueon/dms-scrobbler.git ~/.config/DankMaterialShell/plugins/lastfmScrobbler
+make -C ~/.config/DankMaterialShell/plugins/lastfmScrobbler
+dms ipc plugin-scan reload lastfmScrobbler
 ```
 
 ---
 
 ## Configuration & Authentication Flow
 
-Because Last.fm enforces strict rate-limits on shared API keys (which would cause scrobbling to fail randomly if all plugin users shared a single key), you must use your own free developer credentials.
+You can enable **Last.fm**, **ListenBrainz**, or **both simultaneously**.
 
-### Step 1: Obtain Last.fm API Credentials
-1. Go to the [Last.fm API Account Creation Page](https://www.last.fm/api/account/create).
-2. Log in with your standard Last.fm account.
-3. Fill in the API application form:
-   - **Contact email**: Your email address.
-   - **Application name**: E.g., `DMS Scrobbler` or `Dank Shell Scrobbler`.
-   - **Application description**: A short description (e.g. *Last.fm companion and scrobbler for Dank Material Shell*).
-   - **Callback URL** and **Homepage URL**: You can safely leave these blank.
-4. Click **Submit**. Last.fm will display your **API Key** and **Shared Secret**.
+### Last.fm Setup
+1. Go to the [Last.fm API Account Creation Page](https://www.last.fm/api/account/create) and create an API application to obtain your **API Key** and **Shared Secret**.
+2. Open **DMS Settings → Plugins → DMS Last.fm Scrobbler**.
+3. Ensure **Enable Last.fm** is on, paste your **API Key** and **Shared Secret**.
+4. Click **1. Authenticate**, approve access in your browser, then return and click **2. Confirm Auth**.
 
-### Step 2: Authenticate the Plugin
-1. Open the **DMS Control Center** -> **Settings** -> **Last.fm Scrobbler**.
-2. Paste your **API Key** and **Shared Secret** into the respective text fields.
-3. Click **1. Authenticate**. 
-   - This will automatically launch your default web browser and redirect you to the Last.fm authorization page.
-4. In the browser, click **Yes, Allow Access** to grant permissions.
-5. Return to the DMS Settings GUI and click **2. Confirm Authentication**.
-   - The status panel will update to show: `Authenticated as: <your_username>`.
-   - The session key is stored in `~/.config/DankMaterialShell/plugin_settings.json`. Note this file is **plain text** (it is not encrypted), but it lives only on your machine and is never committed to this repository. Your Last.fm password is never handled by the plugin — only the API key, shared secret, and a revocable session key are stored.
+### ListenBrainz Setup
+1. Visit [listenbrainz.org/settings/](https://listenbrainz.org/settings/) while logged in and copy your **User Token**.
+2. Open **DMS Settings → Plugins → DMS Last.fm Scrobbler → ListenBrainz**.
+3. Enable **Enable ListenBrainz** and paste your **ListenBrainz User Token**.
+4. Click **Validate Token** — your ListenBrainz username will be resolved automatically and shown as `Connected as: <username>`.
+5. Optionally adjust **ListenBrainz API URL** if using a self-hosted ListenBrainz-compatible server (defaults to `https://api.listenbrainz.org`).
+
+> Credentials are saved locally in `~/.config/DankMaterialShell/plugin_settings.json` and passed to the Python helper over `stdin`, never on process command lines or in logs.
 
 ---
 
 ## Features & Customization (Settings)
 
-You can customize the companion widget directly inside the settings page:
-- **Show Love Button**: Toggle the heart (love/unlove) button on the bar. Love stays available via the popout and IPC even when hidden.
-- **Show Album Art**: Renders a small square cover art thumbnail with rounded corners next to the playing track.
-- **Show Music Playing Animation**: Renders a dynamic, animated sound wave representation that moves reactively when a song is playing.
-- **Show Track Information**: Renders the `"Artist - Title"` text (capped at 140px with a scrolling marquee). *Note: Text is hidden on vertical panels for layout stability but remains available in the hover tooltip.*
-- **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble. The default includes common music players plus Chrome, Chromium and Firefox; browser media is accepted only when DMS can resolve both a title and an artist.
-- **Scrobble Threshold**: Select the percentage of track duration that must elapse before a scrobble is sent to Last.fm (defaults to `50%` or 4 minutes, whichever comes first, on tracks longer than 30 seconds).
-- **Remote Playback Fallback**: When enabled, read the authenticated account's Last.fm `Now Playing` every 60 seconds during remote playback, backing off to 10 minutes when idle. On by default.
-- **Search YouTube Music for missing artwork**: When enabled, send the artist, title and album to `music.youtube.com` only if Last.fm has no cover. Off by default.
-- **Enable MPRIS Metadata Bridge**: Publish the current local track with enriched artwork, or the remote Last.fm track when no local source is active, through the optional read-only bridge.
-- **Debug Logging** (Advanced): Print verbose diagnostics to the DMS logs for troubleshooting. Off by default; credentials are never logged.
-
-### Cast and remote playback
-
-MPRIS carries controls and metadata, not the audio stream. Pavucontrol will therefore show no local application stream when playback is routed to Chromecast, AirPlay, DLNA, Spotify Connect or another remote target.
-
-When no MPRIS player is actively playing, the optional **Remote Playback Fallback** polls the user's Last.fm `Now Playing` status every 60 seconds during remote playback and backs off to 10 minutes after repeated idle checks. This is protocol-independent and can display remote sessions reported by another scrobbler, including their loved state and Last.fm links. Tracks discovered this way are never submitted again by this plugin, preventing duplicate scrobbles. A playing MPRIS source always takes priority; remote `Now Playing` takes priority over paused or stale local metadata.
-
-With **Enable MPRIS Metadata Bridge** enabled and the optional helper built, the bridge is exposed as `org.mpris.MediaPlayer2.dms_lastfm_remote`. While local media is active it mirrors the same canonical DMS track and contributes enriched artwork without taking over transport controls. It deliberately reports `Paused` while acting as a local metadata sidecar, so it cannot compete with the real playing source. When local media is absent it can publish remote Last.fm Now Playing as `Playing` instead. The synthetic player is informational: it publishes track, artist, album, artwork and playback status but intentionally reports play/pause, previous/next and seeking as unsupported.
-
-DMS remains the sole authority for player selection. A control-capable local source wins over the bridge; an equivalent bridge mirror cannot displace the canonical player during pause/resume transitions.
-
-If **Search YouTube Music for missing artwork** is enabled and neither MPRIS nor Last.fm provides a cover, the plugin sends artist, title and album from DMS's canonical track to the public YouTube Music search page and accepts a thumbnail only when title plus artist, or album plus artist, match. No YouTube cookies or credentials are read.
-
-This mechanism still requires the emitting application, browser extension or service integration to send `Now Playing` to the authenticated Last.fm account. It republishes Last.fm state as MPRIS; it does not directly discover Chromecast, AirPlay, DLNA or other cast protocols.
+- **Show Love Button / Album Art / Music Playing Animation / Track Info**: Customize what appears in the bar pill.
+- **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble.
+- **Scrobble Threshold**: Percentage of track duration required before scrobbling (`50%`, `75%`, or `100%`, capped at 4 minutes, on tracks longer than 30 seconds).
+- **Scrobble Notifications**: Toggle routine scrobble-success toasts (errors, offline queueing, and love actions always notify).
+- **Remote Playback Fallback**: Poll Last.fm and/or ListenBrainz `Now Playing` when no local player is active (every 60s during remote playback, backing off to 10m when idle). Never re-scrobbles remote tracks.
+- **Search YouTube Music for missing artwork**: Opt-in cover art lookup on `music.youtube.com` when DMS and Last.fm lack artwork.
+- **Enable MPRIS Metadata Bridge**: Publish the current local track with enriched artwork, or remote Now Playing when idle, as `org.mpris.MediaPlayer2.dms_lastfm_remote`.
+- **Debug Logging**: Verbose diagnostics in DMS logs (never logs secrets).
 
 ### Mouse Actions
-Each mouse button on the bar pill is configurable in settings (**Left Click**, **Middle Click / Three-Finger Tap**, **Right Click**). Available actions are limited to companion functions: *Open Popout, Toggle Love, Refresh Info, Open Artist on Last.fm, Open Track on Last.fm,* and *Nothing*. Transport actions intentionally live only in DMS.
-
-Defaults:
-- **Left Click** → Open Popout
-- **Middle Click** (mouse wheel button, or a three-finger touchpad tap) → Toggle Love
-- **Right Click** → Open Track on Last.fm
+Each mouse button on the bar pill is configurable in settings (**Left Click**, **Middle Click / Three-Finger Tap**, **Right Click**): *Open Popout, Toggle Love, Refresh Info, Open Artist on Last.fm, Open Track on Last.fm, Open Track on ListenBrainz, Open ListenBrainz Profile, Flush Offline Queue,* and *Nothing*.
 
 ### Offline Queue
-If a scrobble can't reach Last.fm (no network, server error, or rate limit), it is **saved to a local queue** instead of being lost (`$XDG_CACHE_HOME/dms-scrobbler/queue.json`). Queued scrobbles are automatically resent (in batches) on startup, every few minutes, and whenever connectivity is detected again. The popout shows a "scrobble(s) pending" indicator while the queue is non-empty.
-
-Queue updates are protected by an inter-process lock and written atomically. API credentials are sent to the Python helper over standard input rather than exposed in process command lines, and malformed or failed API responses never count as successful love/unlove actions.
-
-### Repeats & Now Playing
-Replaying the same track (position jumping back to the start) is detected via MPRIS position and counts as a fresh listen, re-arming the scrobble and updating *Now Playing*. The scrobble progress bar in the popout shows how long until the current track scrobbles.
+If a scrobble or listen cannot reach Last.fm or ListenBrainz (no network, server error, or rate limit `429`), it is saved to an inter-process locked, atomic local queue (`$XDG_CACHE_HOME/dms-scrobbler/queue.json`) tagged per service (`lastfm` / `listenbrainz`). Queued items are automatically flushed in batches on startup, on successful online activity, and every 5 minutes — or manually via Settings, the Popout banner, or IPC.
 
 ---
 
 ## Niri / Compositor Keybinds (IPC)
-The plugin registers a global IPC target named `lastfmScrobbler`. You can invoke its methods from the terminal or bind them in window managers.
+The plugin keeps the immutable IPC target `lastfmScrobbler`.
 
 ### Available IPC Commands
-- **Toggle Love/Unlove** for the current song:
-  ```bash
-  dms ipc call lastfmScrobbler toggleLove
-  ```
-- **Love** the current song:
-  ```bash
-  dms ipc call lastfmScrobbler love
-  ```
-- **Unlove** the current song:
-  ```bash
-  dms ipc call lastfmScrobbler unlove
-  ```
-- **Check scrobbler status** (prints current track, selected source, love state and whether scrobbling is local or external):
-  ```bash
-  dms ipc call lastfmScrobbler status
-  ```
+- `dms ipc call lastfmScrobbler toggleLove` — Toggle love/unlove on all enabled services
+- `dms ipc call lastfmScrobbler love` — Love current song on all enabled services
+- `dms ipc call lastfmScrobbler loveListenBrainz` — Love current song on ListenBrainz only
+- `dms ipc call lastfmScrobbler unlove` — Unlove current song on all enabled services
+- `dms ipc call lastfmScrobbler refresh` — Refresh track metadata and love states
+- `dms ipc call lastfmScrobbler flushQueue` — Flush pending offline scrobbles/listens
+- `dms ipc call lastfmScrobbler status` — Print current track, source, love state, and per-service delivery status
+- `dms ipc call lastfmScrobbler currentTrackJson` — JSON snapshot (includes `lastfmLoved`, `listenbrainzLoved`, `recordingMbid`, `recordingMsid`, `durationMs`)
 
-### Niri Keybind Configuration
-Add the following to your `~/.config/niri/config.kdl` to assign a shortcut (e.g., `Mod+Shift+L` to toggle Love):
+### Niri Keybind Example
 ```kdl
 binds {
-    Mod+Shift+L { spawn "dms" "ipc" "call" "lastfmScrobbler" "toggleLove"; }
+    Mod+Alt+G { spawn-sh "dms ipc call lastfmScrobbler love"; }
+    Mod+Alt+Shift+G { spawn-sh "notify-send -a 'Scrobbler' 'Status' \"$(dms ipc call lastfmScrobbler status)\""; }
 }
 ```
