@@ -10,7 +10,7 @@ QtObject {
             }
             done({
                 "title": "Python 3 is required",
-                "details": "Install Python 3 and re-enable DMS Last.fm Scrobbler."
+                "details": "Install Python 3 and re-enable DMS Last.fm & ListenBrainz Scrobbler."
             });
         });
     }

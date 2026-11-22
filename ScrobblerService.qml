@@ -1131,7 +1131,7 @@ PluginComponent {
         var doLfm = includeLastFm && lastfmConfigured;
         var doLb = includeListenBrainz && listenbrainzConfigured;
         if (!doLfm && !doLb) {
-            ToastService.showError("No scrobbling service is configured in DMS Last.fm Scrobbler.");
+            ToastService.showError("No scrobbling service is configured in DMS Last.fm & ListenBrainz Scrobbler.");
             return;
         }
         if (lovePending) return;

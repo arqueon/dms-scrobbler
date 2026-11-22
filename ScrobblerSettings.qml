@@ -27,7 +27,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "DMS Scrobbler Settings"
+        text: "DMS Last.fm & ListenBrainz Scrobbler"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
         color: Theme.surfaceText

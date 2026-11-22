@@ -50,13 +50,13 @@ You can enable **Last.fm**, **ListenBrainz**, or **both simultaneously**.
 
 ### Last.fm Setup
 1. Go to the [Last.fm API Account Creation Page](https://www.last.fm/api/account/create) and create an API application to obtain your **API Key** and **Shared Secret**.
-2. Open **DMS Settings → Plugins → DMS Last.fm Scrobbler**.
+2. Open **DMS Settings → Plugins → DMS Last.fm & ListenBrainz Scrobbler**.
 3. Ensure **Enable Last.fm** is on, paste your **API Key** and **Shared Secret**.
 4. Click **1. Authenticate**, approve access in your browser, then return and click **2. Confirm Auth**.
 
 ### ListenBrainz Setup
 1. Visit [listenbrainz.org/settings/](https://listenbrainz.org/settings/) while logged in and copy your **User Token**.
-2. Open **DMS Settings → Plugins → DMS Last.fm Scrobbler → ListenBrainz**.
+2. Open **DMS Settings → Plugins → DMS Last.fm & ListenBrainz Scrobbler → ListenBrainz**.
 3. Enable **Enable ListenBrainz** and paste your **ListenBrainz User Token**.
 4. Click **Validate Token** — your ListenBrainz username will be resolved automatically and shown as `Connected as: <username>`.
 5. Optionally adjust **ListenBrainz API URL** if using a self-hosted ListenBrainz-compatible server (defaults to `https://api.listenbrainz.org`).
@@ -67,6 +67,8 @@ You can enable **Last.fm**, **ListenBrainz**, or **both simultaneously**.
 
 ## Features & Customization (Settings)
 
+- **Popout & Control Center**: The popout shows cover art, source badge, scrobble progress bar, clickable per-service status & love chips (`Last.fm` / `ListenBrainz`), balanced love/sync/artist/track/refresh actions, and a `Retry`/`Flush` banner on errors or queued listens. Control Center adds a quick-toggle tile with an expandable track detail card.
+- **How ListenBrainz Love/Unlove Works**: Looks up canonical MusicBrainz IDs (`recording_mbid`) via `/1/metadata/lookup/` (with an album-less retry if release names differ) and falls back to `recording_msid` from user listens or `playing_now?return_msid=true` for unmapped tracks. Unlove queries `get-feedback-for-recordings` across both MBID and MSID so legacy MSID-only loves imported from Last.fm are also cleared properly.
 - **Show Love Button / Album Art / Music Playing Animation / Track Info**: Customize what appears in the bar pill.
 - **Music Player Whitelist**: Comma-separated list of MPRIS identities to scrobble.
 - **Scrobble Threshold**: Percentage of track duration required before scrobbling (`50%`, `75%`, or `100%`, capped at 4 minutes, on tracks longer than 30 seconds).
@@ -85,7 +87,7 @@ If a scrobble or listen cannot reach Last.fm or ListenBrainz (no network, server
 ---
 
 ## Niri / Compositor Keybinds (IPC)
-The plugin keeps the immutable IPC target `lastfmScrobbler`.
+The plugin keeps the immutable `id` and IPC target `lastfmScrobbler` so existing DMS settings, registry entries, and Niri keybinds continue to work seamlessly across upgrades.
 
 ### Available IPC Commands
 - `dms ipc call lastfmScrobbler toggleLove` — Toggle love/unlove on all enabled services
