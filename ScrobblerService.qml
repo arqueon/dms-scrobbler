@@ -1432,29 +1432,46 @@ PluginComponent {
 
     Component {
         id: processComponent
-        Process {
-            id: procItem
+        Item {
+            id: procWrapper
             property var procCommand: []
             property var procArgs: []
             property var callback: null
             property string outputBuffer: ""
             property string stderrBuffer: ""
             property bool finished: false
+            property alias running: procItem.running
 
-            command: procCommand
-            stdinEnabled: true
+            Process {
+                id: procItem
+                command: procWrapper.procCommand
+                stdinEnabled: true
 
-            stdout: SplitParser {
-                splitMarker: ""
-                onRead: function(data) {
-                    procItem.outputBuffer += data;
+                stdout: SplitParser {
+                    splitMarker: ""
+                    onRead: function(data) {
+                        procWrapper.outputBuffer += data;
+                    }
                 }
-            }
 
-            stderr: SplitParser {
-                splitMarker: ""
-                onRead: function(data) {
-                    procItem.stderrBuffer += data;
+                stderr: SplitParser {
+                    splitMarker: ""
+                    onRead: function(data) {
+                        procWrapper.stderrBuffer += data;
+                    }
+                }
+
+                onStarted: write(JSON.stringify({ "args": procWrapper.procArgs }) + "\n")
+
+                onExited: function(exitCode) {
+                    if (procWrapper.finished) return;
+                    procWrapper.finished = true;
+                    timeoutTimer.stop();
+                    root.dlog("process exited with code:", exitCode, "buffered output length:", procWrapper.outputBuffer.length);
+                    if (procWrapper.stderrBuffer.length > 0)
+                        root.dlog("helper stderr:", procWrapper.stderrBuffer.trim());
+                    if (procWrapper.callback) procWrapper.callback(exitCode, procWrapper.outputBuffer);
+                    procWrapper.destroy();
                 }
             }
 
@@ -1464,27 +1481,14 @@ PluginComponent {
                 repeat: false
                 running: procItem.running
                 onTriggered: {
-                    if (procItem.finished) return;
-                    procItem.finished = true;
+                    if (procWrapper.finished) return;
+                    procWrapper.finished = true;
                     procItem.running = false;
                     root.dlog("helper process timed out");
-                    if (procItem.callback)
-                        procItem.callback(124, JSON.stringify({ "error": -1, "message": "Scrobbler helper timed out" }));
-                    procItem.destroy();
+                    if (procWrapper.callback)
+                        procWrapper.callback(124, JSON.stringify({ "error": -1, "message": "Scrobbler helper timed out" }));
+                    procWrapper.destroy();
                 }
-            }
-
-            onStarted: write(JSON.stringify({ "args": procArgs }) + "\n")
-
-            onExited: function(exitCode) {
-                if (procItem.finished) return;
-                procItem.finished = true;
-                timeoutTimer.stop();
-                root.dlog("process exited with code:", exitCode, "buffered output length:", procItem.outputBuffer.length);
-                if (procItem.stderrBuffer.length > 0)
-                    root.dlog("helper stderr:", procItem.stderrBuffer.trim());
-                if (procItem.callback) procItem.callback(exitCode, procItem.outputBuffer);
-                procItem.destroy();
             }
         }
     }
