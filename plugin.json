@@ -2,7 +2,7 @@
 	"id": "lastfmScrobbler",
 	"name": "DMS Last.fm & ListenBrainz Scrobbler",
 	"description": "Last.fm & ListenBrainz companion for the native DMS media player: scrobbling, love/unlove, offline queueing and profile links",
-	"version": "1.5.0",
+	"version": "1.5.1",
 	"author": "arqueon",
 	"icon": "favorite",
 	"type": "composite",
